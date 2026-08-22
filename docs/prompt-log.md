@@ -129,6 +129,21 @@ Gave `uvicorn app.api:app --port 8000` as the start command (noting `python main
 **Response (summarised — relevant part):**
 Test-first: uncommented the provided `assert data["updated_at"] != original_updated_at` in `test_update_prompt`, added `assert data["updated_at"] > original_updated_at` (must move *forward*, not merely differ) and `assert data["created_at"] == ...` (the fix must not disturb `created_at`), and added `test_update_prompt_not_found` (PUT on an unknown id → 404) since PUT had no not-found test. Confirmed red: `test_update_prompt` failed. Then changed `updated_at=existing.updated_at` to `updated_at=get_current_time()` in the `Prompt(...)` construction and removed the `BUG #2` comments. Re-ran: 13 passed, 1 failed (`test_sorting_order`, Bug #3, untouched). No regressions.
 
-**Outcome:** Accepted
+**Outcome:** Iterated → P-07
+**Why I changed my next prompt:** Running the suggested curl sequence against my local server showed `updated_at` identical before and after PUT. The output had told me *how* to verify but not that the already-running server would be serving the old code, so I added an explicit constraint: verify the field changes and the test passes before calling the bug complete.
+
+## P-07 — Bug #2 appears not to work: verify before declaring it complete (iteration of P-06: added constraint)
+
+**Stage:** Bug fix → Verification
+**Context given:** Files: `backend/app/api.py` (`update_prompt` as fixed in P-06), `backend/tests/test_api.py::test_update_prompt`; plus live process inspection (`lsof` on port 8000, process start time vs. commit time) and the curl sequence run against two servers.
+**Why that context:** The report contradicted a passing test, so the question was not "is the code right" but "what is the running server executing". That needed process state, not more source.
+
+**Prompt (verbatim):**
+> The updated_at is identical for both.  Let's take a closer look at Bug #2.  The updated_at should update to the current time.  The test should also verify that it's passing.  Please check your work and verify that the updated_at is getting updated and that the test is passing before Bug #2 is complete.
+
+**Response (summarised — relevant part):**
+Reproduced before changing anything. On disk `api.py:104` reads `updated_at=get_current_time()` and `test_update_prompt` passes on a clean run. `lsof` showed a Python process (pid 3373) listening on 8000 that had been **started at 01:22:30 — two minutes before the fix was committed at 01:24:39**. Running the POST → sleep → PUT sequence against that server reproduced the report exactly: `updated_at` unchanged (`…36.352294` both times). Starting a fresh server on port 8001 from the current code and running the identical sequence gave `created_at` unchanged and `updated_at` advanced by 1.07 s (`…50.842749` → `…51.909182`). Conclusion: the fix is correct; the server was started before the fix and uvicorn without `--reload` does not re-import. Advised restarting with `uvicorn app.api:app --port 8000 --reload`, and acknowledged the P-06 response should have said to restart before curling.
+
+**Outcome:** Accepted — Bug #2 verified both by test and end-to-end on a fresh server.
 **Why I changed my next prompt:** _(pending)_
 
