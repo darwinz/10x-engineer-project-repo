@@ -145,5 +145,22 @@ Test-first: uncommented the provided `assert data["updated_at"] != original_upda
 Reproduced before changing anything. On disk `api.py:104` reads `updated_at=get_current_time()` and `test_update_prompt` passes on a clean run. `lsof` showed a Python process (pid 3373) listening on 8000 that had been **started at 01:22:30 — two minutes before the fix was committed at 01:24:39**. Running the POST → sleep → PUT sequence against that server reproduced the report exactly: `updated_at` unchanged (`…36.352294` both times). Starting a fresh server on port 8001 from the current code and running the identical sequence gave `created_at` unchanged and `updated_at` advanced by 1.07 s (`…50.842749` → `…51.909182`). Conclusion: the fix is correct; the server was started before the fix and uvicorn without `--reload` does not re-import. Advised restarting with `uvicorn app.api:app --port 8000 --reload`, and acknowledged the P-06 response should have said to restart before curling.
 
 **Outcome:** Accepted — Bug #2 verified both by test and end-to-end on a fresh server.
+**Why I changed my next prompt:** Restarted my server and saw `updated_at` change — Bug #2 confirmed. For Bug #3 I asked up front for a curl verification set, so the restart lesson is built into the request.
+
+## P-08 — Fix Bug #3 (GET /prompts sorts oldest first) and provide curl verification
+
+**Stage:** Bug fix → Verification
+**Context given:** Files: `backend/app/utils.py` — `sort_prompts_by_date` (lines 7–14) only; `backend/tests/test_api.py::test_sorting_order`. End-to-end check on a fresh server (port 8001).
+**Why that context:** The sort is a single three-line helper whose `descending` parameter was ignored; the route (`api.py:60`) already calls it with `descending=True`, so only the helper needed to change.
+
+**Prompt (verbatim):**
+> My server was running prior to the changes, and I assumed it was watching for updates.  I've since restarted that server and can see now that the bug is fixed.
+>
+> Let's move to Bug #3.  GET /prompts should return newest first but returns oldest first.  Find the sorting logic, fix the order, and verify.  Once done, provide a set of commands I can verify myself through curl.
+
+**Response (summarised — relevant part):**
+Located the defect in `utils.sort_prompts_by_date`: `sorted(prompts, key=lambda p: p.created_at)` with the `descending` argument never used. Changed it to `sorted(prompts, key=lambda p: p.created_at, reverse=descending)` and removed the `BUG #3` comments. Added `tests/test_utils.py` with three unit tests for the helper: default is newest-first, `descending=False` is oldest-first, and the input list is not mutated. Suite: **17 passed, 0 failed** — first fully green run. End-to-end on a fresh server: created "First", "Second", "Third" 200 ms apart; `GET /prompts` returned Third, Second, First with descending `created_at` values. Provided a curl command set for self-verification.
+
+**Outcome:** _(pending review)_
 **Why I changed my next prompt:** _(pending)_
 
