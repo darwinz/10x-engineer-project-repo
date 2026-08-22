@@ -1,6 +1,6 @@
 # AI Verification Note
 
-One instance, from the exploration stage, where the AI's output looked right, was wrong, and would have gone into the system model as fact if I had not pushed back. Traceable to **P-03** in `docs/prompt-log.md`.
+One instance, from the exploration stage, where the AI's output looked right, was wrong, and would have gone into the system model as fact if I had not pushed back. Traceable to **P-03** (where the claim was made) and **P-03a** (where it was caught) in `docs/prompt-log.md`.
 
 ## What the AI produced
 
@@ -36,7 +36,7 @@ The AI had found the warning string in the source and stopped reading there. The
 
 ## How I detected it
 
-When I asked for the `SYSTEM_MODEL.md` draft I added an explicit constraint: it **must** be accurate to the codebase and the AI must **not guess**. That constraint is recorded in P-03's *Why I changed my next prompt* line. Rather than letting the earlier claim flow into the document, the AI re-checked it under that constraint in two steps, both of which I could see in the session:
+When I asked for the `SYSTEM_MODEL.md` draft I added an explicit constraint: it **must** be accurate to the codebase and the AI must **not guess**. That prompt is logged verbatim as P-03a. Rather than letting the earlier claim flow into the document, the AI re-checked it under that constraint in two steps, both of which I could see in the session:
 
 1. It printed the lines of `uvicorn.run` *around* the warning instead of just searching for the string, which exposed the `sys.exit(1)` immediately after it.
 2. It ran `python main.py` with a timeout. Output:
