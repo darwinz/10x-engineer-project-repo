@@ -89,5 +89,20 @@ Per heading: **Architecture** — single-module monolith, global `storage` singl
 Claude first flagged that `main` (`1df4cbd`) does not contain the prompt log or system model — only `module-1-brownfield` does — and asked where to base the branch; I chose to branch from `module-1-brownfield` so the log stays on the working branch. Created `bugfixes`, confirmed the red baseline (3 failed / 10 passed), then replaced the `if prompt.id: return prompt` guard with the codebase's existing pattern: `if not prompt: raise HTTPException(status_code=404, detail="Prompt not found")` followed by `return prompt`. Removed the `BUG #1` comment block. Tightened `test_delete_prompt`'s post-delete assertion from `in [404, 500]` to `== 404`, as the test's own comment instructed for after the fix. Re-ran the suite: 12 passed, 1 failed — the remaining failure is `test_sorting_order` (Bug #3), unchanged. No regressions.
 
 **Outcome:** Accepted
+**Why I changed my next prompt:** The fix was in and the unit tests passed; I wanted an end-to-end check against a running server, not just `TestClient`, before moving to the next bug.
+
+## P-05 — curl command to verify the Bug #1 fix
+
+**Stage:** Verification
+**Context given:** None beyond the conversation — the fixed `get_prompt` handler from P-04 and the `main.py` finding from P-03 (server must be started with `uvicorn app.api:app`, not `python main.py`).
+**Why that context:** Verifying a single endpoint's HTTP behaviour needs no source context; it needs a running server and the request.
+
+**Prompt (verbatim):**
+> Provide a curl command to test the fixed bug
+
+**Response (summarised — relevant part):**
+Gave `uvicorn app.api:app --port 8000` as the start command (noting `python main.py` exits), then `curl -i http://localhost:8000/prompts/does-not-exist`. Ran it against a live server rather than only describing the expected output; the real response was `HTTP/1.1 404 Not Found` with body `{"detail":"Prompt not found"}`. Also created a prompt via `POST` and fetched it by id to show the contrasting `200`. Stopped the server afterwards.
+
+**Outcome:** Accepted
 **Why I changed my next prompt:** _(pending)_
 
