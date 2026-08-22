@@ -79,8 +79,7 @@ class TestPrompts:
         
         # Verify it's gone
         get_response = client.get(f"/prompts/{prompt_id}")
-        # Note: This might fail due to Bug #1
-        assert get_response.status_code in [404, 500]  # 404 after fix
+        assert get_response.status_code == 404
     
     def test_update_prompt(self, client: TestClient, sample_prompt_data):
         # Create a prompt first

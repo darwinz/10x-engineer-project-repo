@@ -76,3 +76,18 @@ Per heading: **Architecture** — single-module monolith, global `storage` singl
 **Outcome:** Partly wrong → see `docs/ai-verification-note.md`. The response stated, verbatim: *"`main.py` passes the app object to `uvicorn.run(..., reload=True)` so reload is silently disabled ... `python main.py` works, but edits require a restart."* The first half is right; the conclusion is not. Uvicorn 0.27 logs the warning and then calls `sys.exit(1)` (`uvicorn.run` source, the branch under `if (config.reload or config.workers > 1) and not isinstance(app, str)`). Confirmed by running `python main.py`: it prints the warning and exits with status 1 without binding a port. The claim was made from having seen the warning *string* in the source without reading the lines after it.
 **Why I changed my next prompt:** The SYSTEM_MODEL.md draft was requested with an explicit accuracy constraint ("MUST be accurate to the codebase, DO NOT GUESS"), which prompted re-verifying the `reload` claim by reading the surrounding source and executing `main.py` — that is what surfaced the error. The draft was written with the corrected behaviour. (The draft-generation prompt itself was not logged at Brandon's request.)
 
+## P-04 — Set up the bug-fix branch and fix Bug #1 (GET /prompts/{id} 500 → 404)
+
+**Stage:** Bug fix
+**Context given:** Files: `backend/app/api.py` — the `get_prompt` handler (lines 65–74) and the neighbouring `get_collection` handler as the pattern to mirror; `backend/tests/test_api.py` — `test_get_prompt_not_found` and `test_delete_prompt`.
+**Why that context:** The defect is a single attribute access on `None` inside one function. The correct 404 pattern already exists three handlers down in the same file, so the fix needs no context beyond that file and its two tests.
+
+**Prompt (verbatim):**
+> Create a new git branch from main for bug fixes.  We're going to fix some bugs in this codebase.  All existing tests should continue to pass, so nothing regresses.  Tests are needed for all endpoints, and if none exists for an endpoint we should add one.  If a test exists for an endpoint, we should work toward those tests passing.  We'll do one bug fix at a time, each in a separate commit. Start with fixing Bug #1 — GET /prompts/{id} should return 404 instead of 500.
+
+**Response (summarised — relevant part):**
+Claude first flagged that `main` (`1df4cbd`) does not contain the prompt log or system model — only `module-1-brownfield` does — and asked where to base the branch; I chose to branch from `module-1-brownfield` so the log stays on the working branch. Created `bugfixes`, confirmed the red baseline (3 failed / 10 passed), then replaced the `if prompt.id: return prompt` guard with the codebase's existing pattern: `if not prompt: raise HTTPException(status_code=404, detail="Prompt not found")` followed by `return prompt`. Removed the `BUG #1` comment block. Tightened `test_delete_prompt`'s post-delete assertion from `in [404, 500]` to `== 404`, as the test's own comment instructed for after the fix. Re-ran the suite: 12 passed, 1 failed — the remaining failure is `test_sorting_order` (Bug #3), unchanged. No regressions.
+
+**Outcome:** Accepted
+**Why I changed my next prompt:** _(pending)_
+
