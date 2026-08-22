@@ -104,5 +104,31 @@ Claude first flagged that `main` (`1df4cbd`) does not contain the prompt log or 
 Gave `uvicorn app.api:app --port 8000` as the start command (noting `python main.py` exits), then `curl -i http://localhost:8000/prompts/does-not-exist`. Ran it against a live server rather than only describing the expected output; the real response was `HTTP/1.1 404 Not Found` with body `{"detail":"Prompt not found"}`. Also created a prompt via `POST` and fetched it by id to show the contrasting `200`. Stopped the server afterwards.
 
 **Outcome:** Accepted
+**Why I changed my next prompt:** Ran the curl myself against the server and got the 404 — Bug #1 confirmed end-to-end, so moved on to Bug #2.
+
+## P-06 — Confirm Bug #1 end-to-end; fix Bug #2 (PUT does not update `updated_at`)
+
+**Stage:** Verification → Bug fix
+**Context given:** Files: `backend/app/api.py` — the `update_prompt` handler (lines 89–113) only; `backend/tests/test_api.py` — `test_update_prompt`.
+**Why that context:** A one-line defect inside one handler (`updated_at=existing.updated_at`), with the correct helper (`get_current_time`) already imported at the top of the same file. The provided test already contained the exact assertion for this bug, commented out.
+
+**Prompt (verbatim):**
+> The response is correct now.  Bug #1 is fixed.
+>
+> curl -i http://localhost:8000/prompts/does-not-exist
+> HTTP/1.1 404 Not Found
+> date: Sat, 22 Aug 2026 07:23:11 GMT
+> server: uvicorn
+> content-length: 29
+> content-type: application/json
+>
+> {"detail":"Prompt not found"}
+>
+> Fix Bug #2 — PUT should update the updated_at timestamp
+
+**Response (summarised — relevant part):**
+Test-first: uncommented the provided `assert data["updated_at"] != original_updated_at` in `test_update_prompt`, added `assert data["updated_at"] > original_updated_at` (must move *forward*, not merely differ) and `assert data["created_at"] == ...` (the fix must not disturb `created_at`), and added `test_update_prompt_not_found` (PUT on an unknown id → 404) since PUT had no not-found test. Confirmed red: `test_update_prompt` failed. Then changed `updated_at=existing.updated_at` to `updated_at=get_current_time()` in the `Prompt(...)` construction and removed the `BUG #2` comments. Re-ran: 13 passed, 1 failed (`test_sorting_order`, Bug #3, untouched). No regressions.
+
+**Outcome:** Accepted
 **Why I changed my next prompt:** _(pending)_
 

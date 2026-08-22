@@ -102,9 +102,14 @@ class TestPrompts:
         data = response.json()
         assert data["title"] == "Updated Title"
         
-        # NOTE: This assertion will fail due to Bug #2!
-        # The updated_at should be different from original
-        # assert data["updated_at"] != original_updated_at  # Uncomment after fix
+        # updated_at must move forward on every update (Bug #2)
+        assert data["updated_at"] != original_updated_at
+        assert data["updated_at"] > original_updated_at
+        assert data["created_at"] == create_response.json()["created_at"]
+
+    def test_update_prompt_not_found(self, client: TestClient, sample_prompt_data):
+        response = client.put("/prompts/nonexistent-id", json=sample_prompt_data)
+        assert response.status_code == 404
     
     def test_sorting_order(self, client: TestClient):
         """Test that prompts are sorted newest first.
