@@ -218,6 +218,21 @@ Design stated first: a `PromptPatch` model with every field `Optional` and the s
 
 **End-to-end** (fresh server, results observed before this entry was written): PATCH `{title}` → 200 with only `title` changed and `updated_at` advanced; PATCH `{description:null, collection_id:null}` → 200 with both cleared; PATCH `{title:null}` → 400 `"title cannot be null"`; PATCH `{title:""}` → 422; PATCH unknown `collection_id` → 400; PATCH unknown prompt id → 404.
 
+**Outcome:** Accepted — all C1.4 items complete (4 bugs, PATCH, 38 tests green); pushed to `bugfixes` and opened PR #2 on my fork.
+**Why I changed my next prompt:** The code work was done; moved to Task 1.9 documentation, starting with the docstrings.
+
+## P-11 — Google-style docstrings on every modified or added function
+
+**Stage:** Documentation
+**Context given:** `git diff 1df4cbd` to enumerate exactly which functions and classes changed, then each function body individually while writing its docstring. No whole-repo context.
+**Why that context:** C1.6 fails on an `Args` entry that doesn't exist or a `Raises` that doesn't match. The diff is the authoritative list of what must be documented, and the body of each function is the only source of truth for its Args/Returns/Raises — wider context would invite describing behaviour that isn't there.
+
+**Prompt (verbatim):**
+> Add Google-style docstrings to every function we modified or added
+
+**Response (summarised — relevant part):**
+Claude noted that a signature-only grep of the diff misses functions whose bodies changed without their signature changing, and worked from the full diff instead. Docstrings added with `Args`, `Returns` and `Raises` (the latter only where the function actually raises, listing the specific `HTTPException` status codes and their triggers): `api.py` — `get_prompt`, `update_prompt`, `patch_prompt`, `delete_collection`; `storage.py` — the `Storage` class and all eight modified methods (`get_prompt`, `get_all_prompts`, `update_prompt`, `delete_prompt`, `get_collection`, `get_all_collections`, `delete_collection`, `get_prompts_by_collection`); `utils.py` — `sort_prompts_by_date`; `models.py` — `Prompt`, `Collection`, `PromptPatch` (class docstrings with `Attributes`). The 29 new test functions/classes and the two provided tests that were edited got one-line docstrings describing the behaviour checked rather than restating the name. Then an AST-based check: every function/class overlapping a changed hunk since `1df4cbd` (53 total) has a docstring; for every app function, the set of `Args` names equals the real parameter set and a `Raises` section is present exactly when the body contains a `raise`. Result: 0 missing, 0 mismatches. Suite: 38 passed.
+
 **Outcome:** _(pending review)_
 **Why I changed my next prompt:** _(pending)_
 
