@@ -133,6 +133,123 @@ class TestPrompts:
         assert prompts[0]["title"] == "Second"  # Will fail until Bug #3 fixed
 
 
+
+class TestPatchPrompt:
+    """Tests for PATCH /prompts/{id} (partial updates)."""
+
+    def _create(self, client: TestClient, sample_prompt_data, **extra):
+        return client.post("/prompts", json={**sample_prompt_data, **extra}).json()
+
+    def test_patch_single_field_leaves_others_unchanged(self, client: TestClient, sample_prompt_data):
+        import time
+        original = self._create(client, sample_prompt_data)
+        time.sleep(0.05)
+
+        response = client.patch(f"/prompts/{original['id']}", json={"title": "Patched Title"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Patched Title"
+        assert data["content"] == original["content"]
+        assert data["description"] == original["description"]
+        assert data["collection_id"] == original["collection_id"]
+        assert data["id"] == original["id"]
+        assert data["created_at"] == original["created_at"]
+        assert data["updated_at"] > original["updated_at"]
+
+        # The change is persisted, not just echoed
+        assert client.get(f"/prompts/{original['id']}").json()["title"] == "Patched Title"
+
+    def test_patch_multiple_fields(self, client: TestClient, sample_prompt_data):
+        original = self._create(client, sample_prompt_data)
+        response = client.patch(
+            f"/prompts/{original['id']}", json={"content": "New content", "description": "New description"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content"] == "New content"
+        assert data["description"] == "New description"
+        assert data["title"] == original["title"]
+
+    def test_patch_not_found(self, client: TestClient):
+        response = client.patch("/prompts/nonexistent-id", json={"title": "x"})
+        assert response.status_code == 404
+
+    def test_patch_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        prompt_id = self._create(client, sample_prompt_data)["id"]
+        client.delete(f"/prompts/{prompt_id}")
+        assert client.patch(f"/prompts/{prompt_id}", json={"title": "x"}).status_code == 404
+
+    def test_patch_null_clears_optional_fields(self, client: TestClient, sample_prompt_data, sample_collection_data):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        original = self._create(client, sample_prompt_data, collection_id=collection_id)
+        assert original["description"] is not None and original["collection_id"] == collection_id
+
+        response = client.patch(
+            f"/prompts/{original['id']}", json={"description": None, "collection_id": None}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["description"] is None
+        assert data["collection_id"] is None
+        assert data["title"] == original["title"]
+
+    def test_patch_null_required_field_returns_400(self, client: TestClient, sample_prompt_data):
+        original = self._create(client, sample_prompt_data)
+
+        for field in ("title", "content"):
+            response = client.patch(f"/prompts/{original['id']}", json={field: None})
+            assert response.status_code == 400, field
+            assert field in response.json()["detail"]
+
+        # Nothing was changed by the rejected requests
+        current = client.get(f"/prompts/{original['id']}").json()
+        assert current["title"] == original["title"]
+        assert current["content"] == original["content"]
+        assert current["updated_at"] == original["updated_at"]
+
+    def test_patch_invalid_value_returns_422(self, client: TestClient, sample_prompt_data):
+        original = self._create(client, sample_prompt_data)
+        response = client.patch(f"/prompts/{original['id']}", json={"title": ""})
+        assert response.status_code == 422
+
+    def test_patch_unknown_collection_returns_400(self, client: TestClient, sample_prompt_data):
+        original = self._create(client, sample_prompt_data)
+        response = client.patch(f"/prompts/{original['id']}", json={"collection_id": "nonexistent-id"})
+        assert response.status_code == 400
+
+    def test_patch_can_move_prompt_to_collection(self, client: TestClient, sample_prompt_data, sample_collection_data):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        original = self._create(client, sample_prompt_data)
+
+        response = client.patch(f"/prompts/{original['id']}", json={"collection_id": collection_id})
+        assert response.status_code == 200
+        assert response.json()["collection_id"] == collection_id
+        assert client.get(f"/prompts?collection_id={collection_id}").json()["total"] == 1
+
+    def test_patch_empty_body_changes_nothing_but_timestamp(self, client: TestClient, sample_prompt_data):
+        import time
+        original = self._create(client, sample_prompt_data)
+        time.sleep(0.05)
+
+        response = client.patch(f"/prompts/{original['id']}", json={})
+        assert response.status_code == 200
+        data = response.json()
+        for field in ("title", "content", "description", "collection_id", "created_at"):
+            assert data[field] == original[field]
+        assert data["updated_at"] > original["updated_at"]
+
+    def test_patch_ignores_server_managed_fields(self, client: TestClient, sample_prompt_data):
+        original = self._create(client, sample_prompt_data)
+        response = client.patch(
+            f"/prompts/{original['id']}",
+            json={"id": "forged", "created_at": "2000-01-01T00:00:00", "deleted_on": "2000-01-01T00:00:00"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == original["id"]
+        assert data["created_at"] == original["created_at"]
+        assert data["deleted_on"] is None
+
 class TestCollections:
     """Tests for collection endpoints."""
     

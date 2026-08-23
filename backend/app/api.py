@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 
 from app.models import (
-    Prompt, PromptCreate, PromptUpdate,
+    Prompt, PromptCreate, PromptUpdate, PromptPatch,
     Collection, CollectionCreate,
     PromptList, CollectionList, HealthResponse,
     get_current_time
@@ -107,8 +107,38 @@ def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
     return storage.update_prompt(prompt_id, updated_prompt)
 
 
-# NOTE: PATCH endpoint is missing! Students need to implement this.
-# It should allow partial updates (only update provided fields)
+@app.patch("/prompts/{prompt_id}", response_model=Prompt)
+def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
+    existing = storage.get_prompt(prompt_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    
+    # Only fields present in the request body count — an omitted field is left
+    # alone, an explicit null clears it.
+    updates = prompt_data.model_dump(exclude_unset=True)
+    
+    # title and content are required on a prompt, so they can be changed but not cleared
+    for field in ("title", "content"):
+        if field in updates and updates[field] is None:
+            raise HTTPException(status_code=400, detail=f"{field} cannot be null")
+    
+    # Validate collection if provided
+    if updates.get("collection_id"):
+        collection = storage.get_collection(updates["collection_id"])
+        if not collection:
+            raise HTTPException(status_code=400, detail="Collection not found")
+    
+    updated_prompt = Prompt(
+        id=existing.id,
+        title=updates.get("title", existing.title),
+        content=updates.get("content", existing.content),
+        description=updates.get("description", existing.description),
+        collection_id=updates.get("collection_id", existing.collection_id),
+        created_at=existing.created_at,
+        updated_at=get_current_time()
+    )
+    
+    return storage.update_prompt(prompt_id, updated_prompt)
 
 
 @app.delete("/prompts/{prompt_id}", status_code=204)

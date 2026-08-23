@@ -198,5 +198,26 @@ Claude first stated the design it would test against, because soft delete has co
 **End-to-end check — with a process mistake.** Claude ran the curl check and wrote the log entry in parallel, and the first version of this paragraph described the expected result (204 → 404 / 404 / 400) *before the script had returned*. The script itself was faulty — the `Content-Type` header was held in an unquoted zsh variable, which does not word-split, so every POST got 422, the ids were empty, and the id-based requests returned 307 redirects. Claude flagged this unprompted, re-ran the check with quoted headers, and only then recorded the result: before delete, 2 prompts and `deleted_on: None`; DELETE 204; afterwards GET collection 404, GET its prompt 404, `GET /prompts` lists only the unrelated "Loose" prompt; second DELETE 404; POST into the deleted collection 400. The conclusion was the same as the premature claim, but the claim had been written without evidence.
 
 **Outcome:** Accepted — confirmed via curl on my own server: collection and its prompt both 404 after delete, unrelated prompt still listed.
+**Why I changed my next prompt:** All four bugs fixed and confirmed; moved to the missing endpoint. I specified the null-handling rule up front (null clears optional fields, 400 for required ones) rather than leaving it to the AI.
+
+## P-10 — Implement PATCH /prompts/{id} for partial updates, test-first
+
+**Stage:** PATCH endpoint
+**Context given:** Files: `backend/app/api.py` — the `update_prompt` (PUT) handler as the pattern to mirror, plus the handler ordering used elsewhere (404 → 400 → build → store); `backend/app/models.py` — `PromptBase`/`PromptUpdate` to derive the constraints; `backend/tests/test_api.py` — existing test style.
+**Why that context:** A new endpoint has to match the conventions of the one it sits beside, so the PUT handler and the model hierarchy were the necessary inputs. The storage layer needed no change (PUT's `get_prompt` → `update_prompt` path is reused as-is), so it was left out.
+
+**Prompt (verbatim):**
+> Implement PATCH /prompts/{id} for partial model updates.  Only update fields provided in the request - don't require all fields.  Update updated_at to current timestamp.  Return 404 if the ID doesn't resolve to an existing prompt.  Follow the patterns already in the codebase.  Ensure there's a test and make sure it passes before completion.  If a field is provided in the request and the value is null, it should null that field in the model unless it's a field that requires a value, in which case a 400 response code should be given.
+
+**Response (summarised — relevant part):**
+Design stated first: a `PromptPatch` model with every field `Optional` and the same length constraints as `PromptBase` when a value is given; `model_dump(exclude_unset=True)` to distinguish *omitted* from *explicitly null*; null on `title`/`content` → 400 (`"<field> cannot be null"`); null on `description`/`collection_id` clears it; a non-null `collection_id` validated exactly as PUT does (400 "Collection not found"); `updated_at` set on every successful PATCH; Pydantic constraint violations (e.g. `""`) remain 422 for consistency with POST/PUT.
+
+**Red:** added a `TestPatchPrompt` class with 11 tests — single-field patch leaves others unchanged and persists; multi-field patch; 404 unknown id; 404 on a soft-deleted prompt; null clears `description` and `collection_id`; null `title`/`content` → 400 and nothing changes (including `updated_at`); `""` → 422; unknown `collection_id` → 400; moving a prompt into a collection; empty body changes nothing but bumps `updated_at`; `id`/`created_at`/`deleted_on` in the body are ignored. 11 failed (405 — no route) / 27 passed.
+
+**Green:** `models.py` — `PromptPatch(BaseModel)`. `api.py` — `patch_prompt` handler placed where the "PATCH endpoint is missing" note was, built in the PUT handler's shape: `storage.get_prompt` → 404; `updates = model_dump(exclude_unset=True)`; 400 for null required fields; collection check; new `Prompt(...)` with `updates.get(field, existing.field)` per field, `created_at` preserved, `updated_at=get_current_time()`; `storage.update_prompt`. **38 passed, 0 failed.**
+
+**End-to-end** (fresh server, results observed before this entry was written): PATCH `{title}` → 200 with only `title` changed and `updated_at` advanced; PATCH `{description:null, collection_id:null}` → 200 with both cleared; PATCH `{title:null}` → 400 `"title cannot be null"`; PATCH `{title:""}` → 422; PATCH unknown `collection_id` → 400; PATCH unknown prompt id → 404.
+
+**Outcome:** _(pending review)_
 **Why I changed my next prompt:** _(pending)_
 
