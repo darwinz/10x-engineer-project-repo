@@ -1,6 +1,6 @@
 # PromptLab Backend — System Model
 
-This is my working model of the backend as I found it, before fixing anything. Every statement here was checked against the source or by running the code; where I ran something to confirm a behaviour I say so. Line numbers refer to the files as they were at the start of Module 1 (commit `1df4cbd`).
+This is my working model of the backend as I found it at the start of Module 1, with the changes the module made marked inline under **After Module 1** headings so the document stays true to the current code. Every statement was checked against the source or by running the code; where I ran something to confirm a behaviour I say so. Line numbers refer to the files as they were at the start of Module 1 (commit `1df4cbd`) unless stated otherwise.
 
 ## 1. Architecture
 
@@ -25,13 +25,15 @@ Things about the architecture that shape everything else:
 
 `backend/main.py` calls `uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)` — passing the app **object** with `reload=True`. Uvicorn 0.27 rejects that combination: it logs `You must pass the application as an import string to enable 'reload' or 'workers'.` and calls `sys.exit(1)`. I ran it to be sure: `python main.py` prints that warning and exits with status 1 without ever binding a port. The README's "Run Locally" instructions therefore do not work as written. Running the server via the import-string form, `uvicorn app.api:app --reload` from `backend/`, starts normally (confirmed).
 
+**After Module 1:** `main.py` passes the import string — `uvicorn.run("app.api:app", host="0.0.0.0", port=8000, reload=True)` — so `python main.py` starts, and hot reload works. Verified on a clean clone (P-12).
+
 ## 2. Entry points
 
 **Process entry points**
 
 - `uvicorn app.api:app --reload` from `backend/` — the working way to start the server.
-- `python main.py` — intended entry point; currently exits immediately (see above).
-- `pytest tests/ -v` from `backend/` — test suite (13 tests; 3 fail before fixes: two from Bug #1, one from Bug #3).
+- `python main.py` — intended entry point; exited immediately as found (see above), works after Module 1.
+- `pytest tests/ -v` from `backend/` — test suite. As found: 13 tests, 3 failing (two from Bug #1, one from Bug #3). After Module 1: 38 tests, all passing.
 
 **HTTP routes**
 
@@ -52,9 +54,15 @@ Ten routes are defined in `api.py`. I confirmed the list by introspecting `app.r
 
 FastAPI also mounts `/docs` (Swagger UI), `/redoc` and `/openapi.json` automatically.
 
+**After Module 1** the table differs in four places: `GET /prompts/{id}` returns 404 for an unknown id (Bug #1); `DELETE /collections/{id}` soft-deletes the collection and its prompts instead of orphaning them (Bug #4); every GET/PUT/PATCH/DELETE by id also returns 404 for a soft-deleted record; and there is an eleventh route:
+
+| Method | Path | Handler | Success | Error responses |
+|---|---|---|---|---|
+| PATCH | `/prompts/{prompt_id}` | `patch_prompt` | 200 `Prompt` | 404 unknown or deleted prompt; 400 null `title`/`content` or unknown `collection_id`; 422 validation |
+
 `GET /prompts` accepts two optional query parameters: `collection_id` (exact match) and `search` (substring).
 
-What is **not** there: `PATCH /prompts/{id}` (the missing endpoint this module adds), and any update route for collections at all — consistent with `Collection` having no `updated_at` field.
+What was **not** there as found: `PATCH /prompts/{id}` (added in this module, see above), and any update route for collections — consistent with `Collection` having no `updated_at` field. Collections still have no update route.
 
 ## 3. Data flow
 
@@ -81,7 +89,11 @@ A four-stage pipeline over a fresh copy of the whole store (`api.py:43-62`):
 
 `storage.get_prompt()` → 404 if `None` → if `collection_id` given, `storage.get_collection()` → 400 if `None` → construct a **new** `Prompt` copying `id` and `created_at` from the existing object → `storage.update_prompt()` swaps the dict entry (`api.py:89-113`).
 
-Two consequences. First, because `PromptUpdate` declares exactly the same required fields as `PromptCreate`, PUT is a full replacement: leave `description` out of the body and it becomes `None`. Second, the new object also copies `updated_at` from the old one (`api.py:110`) — that is Bug #2; the field never changes after creation.
+Two consequences. First, because `PromptUpdate` declares exactly the same required fields as `PromptCreate`, PUT is a full replacement: leave `description` out of the body and it becomes `None`. Second, the new object also copies `updated_at` from the old one (`api.py:110`) — that is Bug #2; the field never changes after creation. **After Module 1** it is set to `get_current_time()`.
+
+### Partially updating a prompt — `PATCH /prompts/{id}` (added in Module 1)
+
+Same skeleton as PUT, with one extra step. `storage.get_prompt()` → 404 if `None` → `updates = prompt_data.model_dump(exclude_unset=True)`, which contains only the keys the client actually sent, so an omitted field and a field sent as `null` are distinguishable → 400 if `title` or `content` is present and `None` (they are required on a prompt) → if `collection_id` is present and non-null, `storage.get_collection()` → 400 if `None` → build a new `Prompt` with `updates.get(field, existing.field)` for each of the four editable fields, `created_at` preserved, `updated_at = get_current_time()` → `storage.update_prompt()`. An empty body is accepted and only moves `updated_at`. Keys that are not on `PromptPatch` (`id`, `created_at`, `deleted_on`) are ignored by validation and never reach the handler.
 
 ### Deleting a collection — `DELETE /collections/{id}`
 
@@ -94,6 +106,10 @@ Two consequences. First, because `PromptUpdate` declares exactly the same requir
 
 That last one is the real damage from Bug #4: an ordinary read-edit-save round trip on an orphaned prompt fails until the client clears `collection_id` by hand. The API rejects as input the very state it produced.
 
+**After Module 1 — soft delete with cascade.** The handler is unchanged in shape (`storage.delete_collection()` → 404 on `False` → 204), but `Storage.delete_collection()` no longer removes anything. It stamps `deleted_on` on the collection, then calls `get_prompts_by_collection()` (the previously unused helper) and `delete_prompt()` on each active prompt with the *same* timestamp. Prompts keep their `collection_id`. Because every storage read now filters on `deleted_on is None`, the four rows above become: `GET /prompts` no longer lists the prompt; `?collection_id=` returns nothing; `GET /collections/<id>` is 404; and `PUT`/`PATCH` on the prompt is 404 rather than 400. A second `DELETE` on the same collection is 404. `DELETE /prompts/{id}` is soft in the same way. Confirmed by the tests in `TestCollections` and `TestSoftDelete` and by curl (P-09).
+
+The reasoning for soft delete over the alternatives (cascade hard-delete, nulling `collection_id`, or refusing the delete): deleting a collection is more destructive than deleting a single prompt, so keeping the records means the collection or its prompts can still be retrieved and, with a little extra logic, restored or moved to another collection.
+
 ### Errors
 
 There is no custom exception handling. `HTTPException` → `{"detail": ...}` with the given status. Anything else → 500 with no body detail.
@@ -105,10 +121,15 @@ PromptBase            title: str (1–200) · content: str (≥1) · description
 ├── PromptCreate      no additional fields — body of POST /prompts
 ├── PromptUpdate      no additional fields — body of PUT /prompts/{id}; identical to PromptCreate
 └── Prompt            + id: str · created_at: datetime · updated_at: datetime — stored object and response model
+                      + deleted_on: datetime? = None                          (added in Module 1)
+
+PromptPatch           title? · content? · description? · collection_id? — all optional, same constraints
+                      when given; body of PATCH /prompts/{id}                 (added in Module 1)
 
 CollectionBase        name: str (1–100) · description: str? (≤500)
 ├── CollectionCreate  no additional fields — body of POST /collections
 └── Collection        + id: str · created_at: datetime — no updated_at, no list of prompts
+                      + deleted_on: datetime? = None                          (added in Module 1)
 
 PromptList            prompts: List[Prompt] · total: int
 CollectionList        collections: List[Collection] · total: int
@@ -121,21 +142,24 @@ HealthResponse        status: str · version: str
 
 **Pydantic notes.** `Prompt` and `Collection` use the Pydantic v1 style `class Config: from_attributes = True`. Pydantic 2.5 honours it with a deprecation warning. Nothing in the code constructs a model from attributes, so the setting is inert.
 
-**What this means for PATCH.** `PromptUpdate` cannot be reused for partial updates because every field on it is required. A partial-update model needs every field optional with a `None` default. Because `description` and `collection_id` are already nullable, "omitted" and "explicitly set to null" have to be told apart — `model_dump(exclude_unset=True)` is the Pydantic v2 way to do that.
+**What this meant for PATCH.** `PromptUpdate` cannot be reused for partial updates because every field on it is required. `PromptPatch` (added) makes every field optional with a `None` default and keeps the same length constraints when a value is supplied. Because `description` and `collection_id` are nullable, "omitted" and "explicitly set to null" have to be told apart — the handler uses `model_dump(exclude_unset=True)` for that. `deleted_on` lives on `Prompt`/`Collection` only, not on any request body, so clients cannot set it; `PromptPatch` does not declare it, so Pydantic drops it from a PATCH body.
 
 ## 5. Storage layer
 
 `Storage` (`storage.py:11-66`) is two dicts, `_prompts` and `_collections`, keyed by id. Single-key operations (`get_*`, `create_*`, `update_prompt`, `delete_*`) are dict lookups. `get_all_prompts()`, `get_all_collections()` and `get_prompts_by_collection()` scan and return new lists. `clear()` empties both dicts and exists for the tests.
 
-Limitations I can point to in the code:
+**After Module 1 — how soft delete changed the layer.** Records are never removed from the dicts. `delete_prompt(prompt_id, deleted_on=None)` and `delete_collection(collection_id)` set `deleted_on` (the collection delete cascades, see §3) and return `False` for an id that is missing *or already deleted*. `get_prompt()` and `get_collection()` return `None` for a soft-deleted record unless called with `include_deleted=True`; `get_all_*` and `get_prompts_by_collection()` filter on `deleted_on is None`; `update_prompt()` refuses a deleted id. Deletion is done by assigning to the stored object in place — the one place the code relies on limitation 4 below. Nothing undeletes yet; `include_deleted=True` exists so that tests, and a future restore endpoint, can reach the records.
+
+Limitations I can point to in the code (still true after Module 1 unless noted):
 
 1. **Volatile.** Everything lives in process memory; a restart empties the store. The module docstring says this is deliberate and would be replaced by a database.
 2. **Process-local.** Running uvicorn with more than one worker would give each worker its own independent store.
 3. **Read-modify-write is not atomic.** `PUT` does `get_prompt` then `update_prompt` as two separate calls. Individual dict operations are safe under the GIL, so the store cannot corrupt, but two concurrent updates to the same id are last-writer-wins.
 4. **It hands out live references.** `get_prompt()` returns the stored object itself. Mutating that object changes the store without going through `update_prompt()`. The existing handlers never do this — they build a fresh `Prompt` and call `update_prompt()` — and I treat that as the codebase's convention.
-5. **No referential integrity.** `Storage` has no idea prompts reference collections. `delete_collection()` deletes one key and nothing else.
+5. **No referential integrity.** `Storage` has no idea prompts reference collections. As found, `delete_collection()` deleted one key and nothing else. After Module 1 the cascade in `delete_collection()` is the single place storage acts on the relationship; creating or updating a prompt with a bad `collection_id` is still caught in the handlers, not here.
 6. **No pagination or indexing.** Every list, filter and search walks the whole store.
-7. **`update_prompt()` returns `None` for an unknown id** rather than raising. The handler checks existence first so this branch is never reached today.
+7. **`update_prompt()` returns `None` for an unknown id** rather than raising. The handlers check existence first so this branch is never reached today.
+8. **Soft-deleted records accumulate** (after Module 1). Nothing purges them, and the O(n) scans in limitation 6 walk deleted rows too. Fine for an in-memory dev store; a real database would want a partial index or periodic purge.
 
 ## 6. External dependencies
 
@@ -164,7 +188,7 @@ Worth knowing so nobody assumes they are in use. I grepped for callers; each has
 
 - `utils.validate_prompt_content()` — a "≥10 characters" rule that no route applies.
 - `utils.extract_variables()` — pulls `{{name}}` placeholders out of content; the README advertises this feature but no route exposes it.
-- `storage.get_prompts_by_collection()` — the natural query for handling Bug #4; currently unused.
+- `storage.get_prompts_by_collection()` — unused as found; after Module 1 it is called by `delete_collection()` for the cascade.
 - `backend/frontend/`, `docs/`, `specs/` — empty apart from `.gitkeep`.
 
 ## 8. Context strategy
@@ -176,9 +200,15 @@ For each stage of the work I note whether I gave the AI the whole repository or 
 | First-pass exploration (structure, create flow) | Whole repo | Small enough to hold entirely. The tiers are coupled through the shared `storage` object, so reading `api.py` alone would not show where data actually goes. | P-01 |
 | Targeted behaviour question (collection delete) | Two functions (`api.py:149-160`, `storage.py:52-59`) plus a short script run against the app | The delete path is self-contained. For what happens *afterwards* — which crosses into `PUT` and the list filter — running it was more reliable than reasoning about it. | P-02 |
 | Filling in the remaining model headings | Whole repo plus executed checks (route introspection, serialisation, search scope, installed packages) | The accuracy criterion fails on any missed route or dependency, so I needed full coverage; runtime claims were verified by execution rather than inference. | P-03 |
-| Bug fixes #1–#3 | *Planned:* the single function containing each bug | Each is a local, one-line defect with no cross-file effect. | *to be logged* |
-| Bug fix #4 | *Planned:* `delete_collection` in `api.py` plus `storage.py` | The fix spans the two tiers: the handler orchestrates, the storage layer supplies the query. | *to be logged* |
-| PATCH endpoint | *Planned:* `api.py`, `models.py`, `tests/` | Needs a new model, must mirror the PUT handler's pattern, and must follow the existing test style. | *to be logged* |
-| Docstrings and README | *Planned:* one function at a time; `README.md` on its own | Documenting one unit at a time keeps the docstring tied to what that function actually does. | *to be logged* |
+| Drafting this document under a no-guessing constraint | Whole repo, plus re-reading the `uvicorn.run` source and executing `main.py` | Same coverage need as P-03; the added constraint changed *how* the context was used — one inferred claim was re-verified by execution and turned out to be wrong. | P-03a |
+| Bug #1 (404 instead of 500) | One function, `get_prompt` in `api.py`, plus the neighbouring `get_collection` handler as the pattern; the two provided tests | A single attribute access on `None`; the correct pattern already existed three handlers down in the same file. | P-04, P-05 |
+| Bug #2 (`updated_at` on PUT) | One function, `update_prompt` in `api.py`; `test_update_prompt` | A one-line defect, with the right helper already imported in that file and the assertion already written (commented out) in the provided test. | P-06 |
+| Bug #2 did not appear to work | The fixed handler and test, plus process state (`lsof` on the port, process start time vs. commit time) and the same curl sequence against two servers | The report contradicted a passing test, so the question was what the running server was executing, not whether the code was right. The problem was a stale process, not the fix. | P-07 |
+| Bug #3 (sort order) | One function, `sort_prompts_by_date` in `utils.py`; `test_sorting_order` | A three-line helper whose `descending` flag was ignored; the route already called it correctly. | P-08 |
+| Bug #4 (soft delete with cascade) | `models.py` (`Prompt`, `Collection`), the whole of `storage.py`, the delete and read handlers in `api.py`, the test file | Not a local change: once records stay in the store, every read path has to exclude them. Storage is where all reads and deletes meet, so the whole file was in scope. The handlers needed checking and turned out not to need logic changes. | P-09 |
+| PATCH endpoint | The PUT handler in `api.py` as the pattern, the model hierarchy in `models.py`, the existing test style | A new endpoint must match the conventions of the one beside it. Storage needed no change, so it stayed out of scope. | P-10 |
+| Docstrings | `git diff 1df4cbd` for the list of touched functions, then each function body on its own | Args/Returns/Raises must match the implementation; the diff is the authoritative list of what to document and the body is the only source of truth for each. Wider context would invite describing behaviour that isn't there. | P-11 |
+| README | `README.md`, `main.py`, `requirements.txt`, the two known environment failures; then a fresh clone following only the README | The README is judged by whether its steps work on a fresh machine; the only way to know is to clone and follow them. | P-12 |
+| This update | `SYSTEM_MODEL.md`, the final `api.py`/`models.py`/`storage.py`, and the prompt log | Each *After Module 1* note was written against the final code, and the log IDs in this table were checked against the entries they cite. | P-13 |
 
-The rows marked *planned* describe the intended approach and will be replaced with what actually happened, with log references, once those stages are done.
+The pattern across the module: whole-repo context for the three exploration prompts, where the cost of missing something was highest; single-function or single-file context for every fix, where the change was local; file-level plus executed probes whenever the question was about runtime behaviour rather than code shape. The one exception was Bug #4, which needed a whole file because soft delete is a cross-cutting change to every read.
