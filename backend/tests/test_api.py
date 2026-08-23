@@ -69,6 +69,7 @@ class TestPrompts:
         assert response.status_code == 404  # Will fail until bug is fixed
     
     def test_delete_prompt(self, client: TestClient, sample_prompt_data):
+        """DELETE returns 204 and the prompt is then 404 on GET (404, not 500, after the Bug #1 fix)."""
         # Create a prompt first
         create_response = client.post("/prompts", json=sample_prompt_data)
         prompt_id = create_response.json()["id"]
@@ -82,6 +83,7 @@ class TestPrompts:
         assert get_response.status_code == 404
     
     def test_update_prompt(self, client: TestClient, sample_prompt_data):
+        """PUT replaces the fields, moves updated_at forward and leaves created_at alone (Bug #2 fix)."""
         # Create a prompt first
         create_response = client.post("/prompts", json=sample_prompt_data)
         prompt_id = create_response.json()["id"]
@@ -108,6 +110,7 @@ class TestPrompts:
         assert data["created_at"] == create_response.json()["created_at"]
 
     def test_update_prompt_not_found(self, client: TestClient, sample_prompt_data):
+        """PUT on an id that was never created returns 404."""
         response = client.put("/prompts/nonexistent-id", json=sample_prompt_data)
         assert response.status_code == 404
     
@@ -138,9 +141,11 @@ class TestPatchPrompt:
     """Tests for PATCH /prompts/{id} (partial updates)."""
 
     def _create(self, client: TestClient, sample_prompt_data, **extra):
+        """Create a prompt through the API and return the response body."""
         return client.post("/prompts", json={**sample_prompt_data, **extra}).json()
 
     def test_patch_single_field_leaves_others_unchanged(self, client: TestClient, sample_prompt_data):
+        """Patching only the title changes the title and updated_at; every other field, the id and created_at are untouched, and the change is persisted."""
         import time
         original = self._create(client, sample_prompt_data)
         time.sleep(0.05)
@@ -160,6 +165,7 @@ class TestPatchPrompt:
         assert client.get(f"/prompts/{original['id']}").json()["title"] == "Patched Title"
 
     def test_patch_multiple_fields(self, client: TestClient, sample_prompt_data):
+        """Several fields can be patched in one request without touching the rest."""
         original = self._create(client, sample_prompt_data)
         response = client.patch(
             f"/prompts/{original['id']}", json={"content": "New content", "description": "New description"}
@@ -171,15 +177,18 @@ class TestPatchPrompt:
         assert data["title"] == original["title"]
 
     def test_patch_not_found(self, client: TestClient):
+        """PATCH on an id that was never created returns 404."""
         response = client.patch("/prompts/nonexistent-id", json={"title": "x"})
         assert response.status_code == 404
 
     def test_patch_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        """A soft-deleted prompt is not patchable; it behaves as if it does not exist."""
         prompt_id = self._create(client, sample_prompt_data)["id"]
         client.delete(f"/prompts/{prompt_id}")
         assert client.patch(f"/prompts/{prompt_id}", json={"title": "x"}).status_code == 404
 
     def test_patch_null_clears_optional_fields(self, client: TestClient, sample_prompt_data, sample_collection_data):
+        """Sending null for description and collection_id clears both while leaving the title alone."""
         collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
         original = self._create(client, sample_prompt_data, collection_id=collection_id)
         assert original["description"] is not None and original["collection_id"] == collection_id
@@ -194,6 +203,7 @@ class TestPatchPrompt:
         assert data["title"] == original["title"]
 
     def test_patch_null_required_field_returns_400(self, client: TestClient, sample_prompt_data):
+        """Sending null for title or content is rejected with 400 naming the field, and the prompt is left exactly as it was."""
         original = self._create(client, sample_prompt_data)
 
         for field in ("title", "content"):
@@ -208,16 +218,19 @@ class TestPatchPrompt:
         assert current["updated_at"] == original["updated_at"]
 
     def test_patch_invalid_value_returns_422(self, client: TestClient, sample_prompt_data):
+        """A value that breaks a field constraint (empty title) is a validation error, 422, like POST and PUT."""
         original = self._create(client, sample_prompt_data)
         response = client.patch(f"/prompts/{original['id']}", json={"title": ""})
         assert response.status_code == 422
 
     def test_patch_unknown_collection_returns_400(self, client: TestClient, sample_prompt_data):
+        """Moving a prompt into a collection that does not exist is rejected with 400."""
         original = self._create(client, sample_prompt_data)
         response = client.patch(f"/prompts/{original['id']}", json={"collection_id": "nonexistent-id"})
         assert response.status_code == 400
 
     def test_patch_can_move_prompt_to_collection(self, client: TestClient, sample_prompt_data, sample_collection_data):
+        """Patching collection_id attaches the prompt to that collection and it shows up in the collection filter."""
         collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
         original = self._create(client, sample_prompt_data)
 
@@ -227,6 +240,7 @@ class TestPatchPrompt:
         assert client.get(f"/prompts?collection_id={collection_id}").json()["total"] == 1
 
     def test_patch_empty_body_changes_nothing_but_timestamp(self, client: TestClient, sample_prompt_data):
+        """An empty body is a valid no-op patch that still bumps updated_at."""
         import time
         original = self._create(client, sample_prompt_data)
         time.sleep(0.05)
@@ -239,6 +253,7 @@ class TestPatchPrompt:
         assert data["updated_at"] > original["updated_at"]
 
     def test_patch_ignores_server_managed_fields(self, client: TestClient, sample_prompt_data):
+        """id, created_at and deleted_on in a PATCH body are ignored rather than applied or rejected."""
         original = self._create(client, sample_prompt_data)
         response = client.patch(
             f"/prompts/{original['id']}",
@@ -273,10 +288,12 @@ class TestCollections:
         assert response.status_code == 404
     
     def test_delete_collection_not_found(self, client: TestClient):
+        """DELETE on a collection id that was never created returns 404."""
         response = client.delete("/collections/nonexistent-id")
         assert response.status_code == 404
 
     def test_delete_collection_without_prompts(self, client: TestClient, sample_collection_data):
+        """A collection with no prompts can be deleted and then disappears from GET by id and from the list."""
         collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
 
         response = client.delete(f"/collections/{collection_id}")
@@ -310,6 +327,7 @@ class TestCollections:
         assert prompt.collection_id == collection_id
 
     def test_delete_collection_leaves_other_prompts_alone(self, client: TestClient, sample_prompt_data):
+        """Cascade only touches the deleted collection's prompts; prompts in other collections or in none are still listed."""
         doomed_id = client.post("/collections", json={"name": "Doomed"}).json()["id"]
         kept_id = client.post("/collections", json={"name": "Kept"}).json()["id"]
         client.post("/prompts", json={**sample_prompt_data, "title": "In doomed", "collection_id": doomed_id})
@@ -323,11 +341,13 @@ class TestCollections:
         assert client.get("/collections").json()["total"] == 1
 
     def test_delete_collection_twice_returns_404(self, client: TestClient, sample_collection_data):
+        """A second DELETE on the same collection returns 404 because the first soft-deleted it."""
         collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
         assert client.delete(f"/collections/{collection_id}").status_code == 204
         assert client.delete(f"/collections/{collection_id}").status_code == 404
 
     def test_cannot_create_prompt_in_deleted_collection(self, client: TestClient, sample_collection_data, sample_prompt_data):
+        """A soft-deleted collection is not a valid target for a new prompt (400)."""
         collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
         client.delete(f"/collections/{collection_id}")
 
@@ -339,12 +359,14 @@ class TestSoftDelete:
     """Soft-delete behaviour shared by prompts and collections."""
 
     def test_deleted_on_is_null_by_default(self, client: TestClient, sample_prompt_data, sample_collection_data):
+        """Newly created prompts and collections come back with deleted_on null."""
         prompt = client.post("/prompts", json=sample_prompt_data).json()
         collection = client.post("/collections", json=sample_collection_data).json()
         assert prompt["deleted_on"] is None
         assert collection["deleted_on"] is None
 
     def test_delete_prompt_is_soft(self, client: TestClient, sample_prompt_data):
+        """DELETE hides the prompt from the API but the record remains, stamped with deleted_on, reachable with include_deleted=True."""
         prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
 
         assert client.delete(f"/prompts/{prompt_id}").status_code == 204
@@ -357,11 +379,13 @@ class TestSoftDelete:
         assert kept is not None and kept.deleted_on is not None
 
     def test_delete_prompt_twice_returns_404(self, client: TestClient, sample_prompt_data):
+        """A second DELETE on the same prompt returns 404."""
         prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
         assert client.delete(f"/prompts/{prompt_id}").status_code == 204
         assert client.delete(f"/prompts/{prompt_id}").status_code == 404
 
     def test_cannot_update_deleted_prompt(self, client: TestClient, sample_prompt_data):
+        """PUT on a soft-deleted prompt returns 404."""
         prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
         client.delete(f"/prompts/{prompt_id}")
 
@@ -369,6 +393,7 @@ class TestSoftDelete:
         assert response.status_code == 404
 
     def test_clients_cannot_set_deleted_on(self, client: TestClient, sample_prompt_data):
+        """deleted_on in a POST body is ignored; the created prompt still has deleted_on null."""
         response = client.post("/prompts", json={**sample_prompt_data, "deleted_on": "2026-01-01T00:00:00"})
         assert response.status_code == 201
         assert response.json()["deleted_on"] is None

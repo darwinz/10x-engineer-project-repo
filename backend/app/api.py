@@ -64,6 +64,18 @@ def list_prompts(
 
 @app.get("/prompts/{prompt_id}", response_model=Prompt)
 def get_prompt(prompt_id: str):
+    """Return a single prompt by id.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt to fetch.
+
+    Returns:
+        The matching Prompt.
+
+    Raises:
+        HTTPException: 404 if no prompt has that id or the prompt has been
+            soft-deleted.
+    """
     prompt = storage.get_prompt(prompt_id)
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -84,6 +96,25 @@ def create_prompt(prompt_data: PromptCreate):
 
 @app.put("/prompts/{prompt_id}", response_model=Prompt)
 def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
+    """Replace every editable field of a prompt (full update).
+
+    All fields in PromptUpdate are required; a field left out of the body is
+    rejected by validation before this function runs, and an optional field
+    sent as null becomes null. The id and created_at are preserved and
+    updated_at is set to the current time.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt to replace.
+        prompt_data: The complete new set of field values.
+
+    Returns:
+        The stored Prompt after replacement.
+
+    Raises:
+        HTTPException: 404 if no active prompt has that id; 400 if
+            prompt_data.collection_id is set but no active collection has
+            that id.
+    """
     existing = storage.get_prompt(prompt_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -109,6 +140,26 @@ def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
 
 @app.patch("/prompts/{prompt_id}", response_model=Prompt)
 def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
+    """Apply a partial update to a prompt.
+
+    Only fields present in the request body are changed. A field that is
+    omitted keeps its current value; a field sent as null is cleared, except
+    title and content, which must always have a value. The id and created_at
+    are preserved and updated_at is set to the current time even if the body
+    is empty.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt to update.
+        prompt_data: The subset of fields to change. Unset fields are ignored.
+
+    Returns:
+        The stored Prompt after the update.
+
+    Raises:
+        HTTPException: 404 if no active prompt has that id; 400 if title or
+            content is sent as null, or if collection_id is set to an id that
+            does not belong to an active collection.
+    """
     existing = storage.get_prompt(prompt_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -172,6 +223,18 @@ def create_collection(collection_data: CollectionCreate):
 
 @app.delete("/collections/{collection_id}", status_code=204)
 def delete_collection(collection_id: str):
+    """Soft-delete a collection and every active prompt in it.
+
+    Args:
+        collection_id: Path parameter; the id of the collection to delete.
+
+    Returns:
+        None. The response is an empty 204.
+
+    Raises:
+        HTTPException: 404 if no active collection has that id, including a
+            collection that has already been deleted.
+    """
     # Soft delete with cascade (Bug #4). Deleting a collection is more destructive
     # than deleting a single prompt, so neither the collection nor its prompts are
     # removed: storage stamps deleted_on on all of them and reads filter them out.

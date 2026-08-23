@@ -218,6 +218,51 @@ Design stated first: a `PromptPatch` model with every field `Optional` and the s
 
 **End-to-end** (fresh server, results observed before this entry was written): PATCH `{title}` → 200 with only `title` changed and `updated_at` advanced; PATCH `{description:null, collection_id:null}` → 200 with both cleared; PATCH `{title:null}` → 400 `"title cannot be null"`; PATCH `{title:""}` → 422; PATCH unknown `collection_id` → 400; PATCH unknown prompt id → 404.
 
+**Outcome:** Accepted — all C1.4 items complete (4 bugs, PATCH, 38 tests green); pushed to `bugfixes` and opened PR #2 on my fork.
+**Why I changed my next prompt:** The code work was done; moved to Task 1.9 documentation, starting with the docstrings.
+
+## P-11 — Google-style docstrings on every modified or added function
+
+**Stage:** Documentation
+**Context given:** `git diff 1df4cbd` to enumerate exactly which functions and classes changed, then each function body individually while writing its docstring. No whole-repo context.
+**Why that context:** C1.6 fails on an `Args` entry that doesn't exist or a `Raises` that doesn't match. The diff is the authoritative list of what must be documented, and the body of each function is the only source of truth for its Args/Returns/Raises — wider context would invite describing behaviour that isn't there.
+
+**Prompt (verbatim):**
+> Add Google-style docstrings to every function we modified or added
+
+**Response (summarised — relevant part):**
+Claude noted that a signature-only grep of the diff misses functions whose bodies changed without their signature changing, and worked from the full diff instead. Docstrings added with `Args`, `Returns` and `Raises` (the latter only where the function actually raises, listing the specific `HTTPException` status codes and their triggers): `api.py` — `get_prompt`, `update_prompt`, `patch_prompt`, `delete_collection`; `storage.py` — the `Storage` class and all eight modified methods (`get_prompt`, `get_all_prompts`, `update_prompt`, `delete_prompt`, `get_collection`, `get_all_collections`, `delete_collection`, `get_prompts_by_collection`); `utils.py` — `sort_prompts_by_date`; `models.py` — `Prompt`, `Collection`, `PromptPatch` (class docstrings with `Attributes`). The 29 new test functions/classes and the two provided tests that were edited got one-line docstrings describing the behaviour checked rather than restating the name. Then an AST-based check: every function/class overlapping a changed hunk since `1df4cbd` (53 total) has a docstring; for every app function, the set of `Args` names equals the real parameter set and a `Raises` section is present exactly when the body contains a `raise`. Result: 0 missing, 0 mismatches. Suite: 38 passed.
+
+**Outcome:** Accepted
+**Why I changed my next prompt:** Docstrings done; moved to the second half of Task 1.9, the README, with the clean-clone requirement stated as a hard constraint.
+
+## P-12 — README: what the service is and how to run it, verified on a clean clone
+
+**Stage:** Documentation → Verification
+**Context given:** Files: `README.md` (whole file), `backend/main.py`, `backend/requirements.txt`; the P-03/P-03a finding about `uvicorn.run` and the Python 3.13 / `pydantic-core` build failure I hit earlier in the session. Then a fresh `git clone` into a scratch directory, following only the README.
+**Why that context:** The README is judged by whether its steps work on a fresh machine, so the inputs were the README itself, the entry script it tells you to run, and the dependency file it tells you to install — plus the two environment failures already known. Verification by actually cloning is the only way to know the steps work.
+
+**Prompt (verbatim):**
+> In the README, add a section explaining what the service is and how to run it.  The steps must work on a clean clone.
+
+**Response (summarised — relevant part):**
+Identified what in the existing README fails or misleads on a clean clone: `python main.py` exits with status 1 (P-03a); "Python 3.10+" includes 3.13, which cannot build the pinned `pydantic-core`; `cd promptlab` names a directory that does not exist; `pip install` with no virtual environment; an endpoint table that still lists the bugs and omits PATCH. Changes: (1) `backend/main.py` now calls `uvicorn.run("app.api:app", ...)` — the import-string form — so `python main.py` starts and hot reload works; the unused `from app.api import app` import was dropped and the module docstring explains why. (2) Added `.python-version` = `3.12`. (3) Replaced the Quick Start with *What This Service Is* (prompts, collections, in-memory store, soft delete) and *Running It* (prerequisites with the 3.10–3.12 limit and the reason, clone → venv → install → `python main.py`, the reload-empties-the-store caveat, a curl quick check, test instructions, known issues). Updated the project-structure tree and the endpoint table to the current state, including PATCH and soft-delete semantics. **Clean-clone check:** cloned the branch into a scratch directory and ran the README commands verbatim — `python3.12 -m venv .venv`, `pip install -r requirements.txt`, `pytest tests/ -v` → 38 passed, `python main.py` → uvicorn started with the reloader, `curl /health` → `{"status":"healthy","version":"0.1.0"}`, POST created a prompt, `/openapi.json` lists the PATCH route.
+
+**Outcome:** Accepted
+**Why I changed my next prompt:** README verified on a clean clone; the last document still describing the pre-fix code was the system model, so I asked for it to be brought up to date and for the work to go in its own PR.
+
+## P-13 — Update SYSTEM_MODEL.md for soft delete, PATCH, and the final context strategy table
+
+**Stage:** Documentation
+**Context given:** Files: `docs/SYSTEM_MODEL.md` (whole), the final `backend/app/api.py`, `models.py`, `storage.py`, and `docs/prompt-log.md` for the log IDs cited in the context table. Plus a short script exercising the storage layer and `PromptPatch` to confirm the new claims before committing.
+**Why that context:** Every *After Module 1* note had to be checked against the code as it now is, not as remembered from the fixes; the context table cites log entries by ID, so the log was needed to make sure each reference points at a real entry.
+
+**Prompt (verbatim):**
+> Update SYSTEM_MODEL.md with the soft delete, PATCH, and final context strategy table.  Commit changes and create a new PR
+
+**Response (summarised — relevant part):**
+Kept the document's "as found" framing and added **After Module 1** notes rather than rewriting history: §1 — `main.py` now passes the import string and `python main.py` works; §2 — test count 13→38, the four routes whose behaviour changed, and an eleventh-route table row for `PATCH /prompts/{id}` with its 404/400/422 cases; §3 — `updated_at` now set on PUT, a new *Partially updating a prompt* flow (exclude_unset, null rules, preserved `created_at`, empty body), and a *soft delete with cascade* subsection replacing the four orphan rows with the post-fix behaviour and recording the strategy reasoning; §4 — `deleted_on` on `Prompt`/`Collection`, `PromptPatch` in the model tree, and why clients cannot set `deleted_on`; §5 — how soft delete changed every storage read and delete, `include_deleted`, limitation 5 revised, new limitation 8 (deleted rows accumulate); §7 — `get_prompts_by_collection` is now used by the cascade. Replaced the four *planned* rows of the context table with rows for P-03a and P-04 through P-13, each with the actual context given and the reason, and a closing paragraph on the pattern (whole repo for exploration, single function for local fixes, whole file for the one cross-cutting change). Verified before committing: deleting a collection twice returns `True` then `False`; cascade timestamps match; `update_prompt` on a deleted id returns `None`; `PromptPatch` drops `id`/`deleted_on` from its input; every `P-nn` cited in the document exists in this log. Created branch `system-model-update` from `bugfixes` and opened a PR against `bugfixes` (PR #2 is still open, so stacking avoids duplicating its commits).
+
 **Outcome:** _(pending review)_
 **Why I changed my next prompt:** _(pending)_
 
