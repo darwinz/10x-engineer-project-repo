@@ -197,6 +197,6 @@ Claude first stated the design it would test against, because soft delete has co
 
 **End-to-end check — with a process mistake.** Claude ran the curl check and wrote the log entry in parallel, and the first version of this paragraph described the expected result (204 → 404 / 404 / 400) *before the script had returned*. The script itself was faulty — the `Content-Type` header was held in an unquoted zsh variable, which does not word-split, so every POST got 422, the ids were empty, and the id-based requests returned 307 redirects. Claude flagged this unprompted, re-ran the check with quoted headers, and only then recorded the result: before delete, 2 prompts and `deleted_on: None`; DELETE 204; afterwards GET collection 404, GET its prompt 404, `GET /prompts` lists only the unrelated "Loose" prompt; second DELETE 404; POST into the deleted collection 400. The conclusion was the same as the premature claim, but the claim had been written without evidence.
 
-**Outcome:** _(pending review)_
+**Outcome:** Accepted — confirmed via curl on my own server: collection and its prompt both 404 after delete, unrelated prompt still listed.
 **Why I changed my next prompt:** _(pending)_
 
