@@ -233,6 +233,21 @@ Design stated first: a `PromptPatch` model with every field `Optional` and the s
 **Response (summarised — relevant part):**
 Claude noted that a signature-only grep of the diff misses functions whose bodies changed without their signature changing, and worked from the full diff instead. Docstrings added with `Args`, `Returns` and `Raises` (the latter only where the function actually raises, listing the specific `HTTPException` status codes and their triggers): `api.py` — `get_prompt`, `update_prompt`, `patch_prompt`, `delete_collection`; `storage.py` — the `Storage` class and all eight modified methods (`get_prompt`, `get_all_prompts`, `update_prompt`, `delete_prompt`, `get_collection`, `get_all_collections`, `delete_collection`, `get_prompts_by_collection`); `utils.py` — `sort_prompts_by_date`; `models.py` — `Prompt`, `Collection`, `PromptPatch` (class docstrings with `Attributes`). The 29 new test functions/classes and the two provided tests that were edited got one-line docstrings describing the behaviour checked rather than restating the name. Then an AST-based check: every function/class overlapping a changed hunk since `1df4cbd` (53 total) has a docstring; for every app function, the set of `Args` names equals the real parameter set and a `Raises` section is present exactly when the body contains a `raise`. Result: 0 missing, 0 mismatches. Suite: 38 passed.
 
+**Outcome:** Accepted
+**Why I changed my next prompt:** Docstrings done; moved to the second half of Task 1.9, the README, with the clean-clone requirement stated as a hard constraint.
+
+## P-12 — README: what the service is and how to run it, verified on a clean clone
+
+**Stage:** Documentation → Verification
+**Context given:** Files: `README.md` (whole file), `backend/main.py`, `backend/requirements.txt`; the P-03/P-03a finding about `uvicorn.run` and the Python 3.13 / `pydantic-core` build failure I hit earlier in the session. Then a fresh `git clone` into a scratch directory, following only the README.
+**Why that context:** The README is judged by whether its steps work on a fresh machine, so the inputs were the README itself, the entry script it tells you to run, and the dependency file it tells you to install — plus the two environment failures already known. Verification by actually cloning is the only way to know the steps work.
+
+**Prompt (verbatim):**
+> In the README, add a section explaining what the service is and how to run it.  The steps must work on a clean clone.
+
+**Response (summarised — relevant part):**
+Identified what in the existing README fails or misleads on a clean clone: `python main.py` exits with status 1 (P-03a); "Python 3.10+" includes 3.13, which cannot build the pinned `pydantic-core`; `cd promptlab` names a directory that does not exist; `pip install` with no virtual environment; an endpoint table that still lists the bugs and omits PATCH. Changes: (1) `backend/main.py` now calls `uvicorn.run("app.api:app", ...)` — the import-string form — so `python main.py` starts and hot reload works; the unused `from app.api import app` import was dropped and the module docstring explains why. (2) Added `.python-version` = `3.12`. (3) Replaced the Quick Start with *What This Service Is* (prompts, collections, in-memory store, soft delete) and *Running It* (prerequisites with the 3.10–3.12 limit and the reason, clone → venv → install → `python main.py`, the reload-empties-the-store caveat, a curl quick check, test instructions, known issues). Updated the project-structure tree and the endpoint table to the current state, including PATCH and soft-delete semantics. **Clean-clone check:** cloned the branch into a scratch directory and ran the README commands verbatim — `python3.12 -m venv .venv`, `pip install -r requirements.txt`, `pytest tests/ -v` → 38 passed, `python main.py` → uvicorn started with the reloader, `curl /health` → `{"status":"healthy","version":"0.1.0"}`, POST created a prompt, `/openapi.json` lists the PATCH route.
+
 **Outcome:** _(pending review)_
 **Why I changed my next prompt:** _(pending)_
 
