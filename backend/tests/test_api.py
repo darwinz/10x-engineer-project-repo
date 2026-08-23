@@ -155,29 +155,103 @@ class TestCollections:
         response = client.get("/collections/nonexistent-id")
         assert response.status_code == 404
     
+    def test_delete_collection_not_found(self, client: TestClient):
+        response = client.delete("/collections/nonexistent-id")
+        assert response.status_code == 404
+
+    def test_delete_collection_without_prompts(self, client: TestClient, sample_collection_data):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+
+        response = client.delete(f"/collections/{collection_id}")
+        assert response.status_code == 204
+        assert client.get(f"/collections/{collection_id}").status_code == 404
+        assert client.get("/collections").json()["total"] == 0
+
     def test_delete_collection_with_prompts(self, client: TestClient, sample_collection_data, sample_prompt_data):
-        """Test deleting a collection that has prompts.
-        
-        NOTE: Bug #4 - prompts become orphaned after collection deletion.
-        This test documents the current (buggy) behavior.
-        After fixing, update the test to verify correct behavior.
-        """
-        # Create collection
-        col_response = client.post("/collections", json=sample_collection_data)
-        collection_id = col_response.json()["id"]
-        
-        # Create prompt in collection
-        prompt_data = {**sample_prompt_data, "collection_id": collection_id}
-        prompt_response = client.post("/prompts", json=prompt_data)
-        prompt_id = prompt_response.json()["id"]
-        
-        # Delete collection
+        """Deleting a collection soft-deletes the collection and cascades to its prompts (Bug #4)."""
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        prompt_id = client.post(
+            "/prompts", json={**sample_prompt_data, "collection_id": collection_id}
+        ).json()["id"]
+
+        response = client.delete(f"/collections/{collection_id}")
+        assert response.status_code == 204
+
+        # Neither the collection nor its prompt is visible through the API any more
+        assert client.get(f"/collections/{collection_id}").status_code == 404
+        assert client.get(f"/prompts/{prompt_id}").status_code == 404
+        assert client.get("/prompts").json()["total"] == 0
+        assert client.get(f"/prompts?collection_id={collection_id}").json()["total"] == 0
+
+        # ...but both records still exist underneath, stamped with the same deletion time,
+        # and the prompt keeps its collection_id so the grouping could be restored.
+        from app.storage import storage
+        collection = storage.get_collection(collection_id, include_deleted=True)
+        prompt = storage.get_prompt(prompt_id, include_deleted=True)
+        assert collection is not None and collection.deleted_on is not None
+        assert prompt is not None and prompt.deleted_on == collection.deleted_on
+        assert prompt.collection_id == collection_id
+
+    def test_delete_collection_leaves_other_prompts_alone(self, client: TestClient, sample_prompt_data):
+        doomed_id = client.post("/collections", json={"name": "Doomed"}).json()["id"]
+        kept_id = client.post("/collections", json={"name": "Kept"}).json()["id"]
+        client.post("/prompts", json={**sample_prompt_data, "title": "In doomed", "collection_id": doomed_id})
+        client.post("/prompts", json={**sample_prompt_data, "title": "In kept", "collection_id": kept_id})
+        client.post("/prompts", json={**sample_prompt_data, "title": "No collection"})
+
+        client.delete(f"/collections/{doomed_id}")
+
+        titles = {p["title"] for p in client.get("/prompts").json()["prompts"]}
+        assert titles == {"In kept", "No collection"}
+        assert client.get("/collections").json()["total"] == 1
+
+    def test_delete_collection_twice_returns_404(self, client: TestClient, sample_collection_data):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        assert client.delete(f"/collections/{collection_id}").status_code == 204
+        assert client.delete(f"/collections/{collection_id}").status_code == 404
+
+    def test_cannot_create_prompt_in_deleted_collection(self, client: TestClient, sample_collection_data, sample_prompt_data):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
         client.delete(f"/collections/{collection_id}")
-        
-        # The prompt still exists but has invalid collection_id
-        # This is Bug #4 - should be handled properly
-        prompts = client.get("/prompts").json()["prompts"]
-        if prompts:
-            # Prompt exists with orphaned collection_id
-            assert prompts[0]["collection_id"] == collection_id
-            # After fix, collection_id should be None or prompt should be deleted
+
+        response = client.post("/prompts", json={**sample_prompt_data, "collection_id": collection_id})
+        assert response.status_code == 400
+
+
+class TestSoftDelete:
+    """Soft-delete behaviour shared by prompts and collections."""
+
+    def test_deleted_on_is_null_by_default(self, client: TestClient, sample_prompt_data, sample_collection_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        collection = client.post("/collections", json=sample_collection_data).json()
+        assert prompt["deleted_on"] is None
+        assert collection["deleted_on"] is None
+
+    def test_delete_prompt_is_soft(self, client: TestClient, sample_prompt_data):
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+
+        assert client.delete(f"/prompts/{prompt_id}").status_code == 204
+        assert client.get(f"/prompts/{prompt_id}").status_code == 404
+        assert client.get("/prompts").json()["total"] == 0
+
+        from app.storage import storage
+        assert storage.get_prompt(prompt_id) is None
+        kept = storage.get_prompt(prompt_id, include_deleted=True)
+        assert kept is not None and kept.deleted_on is not None
+
+    def test_delete_prompt_twice_returns_404(self, client: TestClient, sample_prompt_data):
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        assert client.delete(f"/prompts/{prompt_id}").status_code == 204
+        assert client.delete(f"/prompts/{prompt_id}").status_code == 404
+
+    def test_cannot_update_deleted_prompt(self, client: TestClient, sample_prompt_data):
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        client.delete(f"/prompts/{prompt_id}")
+
+        response = client.put(f"/prompts/{prompt_id}", json=sample_prompt_data)
+        assert response.status_code == 404
+
+    def test_clients_cannot_set_deleted_on(self, client: TestClient, sample_prompt_data):
+        response = client.post("/prompts", json={**sample_prompt_data, "deleted_on": "2026-01-01T00:00:00"})
+        assert response.status_code == 201
+        assert response.json()["deleted_on"] is None

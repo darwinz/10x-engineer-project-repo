@@ -142,13 +142,11 @@ def create_collection(collection_data: CollectionCreate):
 
 @app.delete("/collections/{collection_id}", status_code=204)
 def delete_collection(collection_id: str):
-    # BUG #4: We delete the collection but don't handle the prompts!
-    # Prompts with this collection_id become orphaned with invalid reference
-    # Should either: delete the prompts, set collection_id to None, or prevent deletion
-    
+    # Soft delete with cascade (Bug #4). Deleting a collection is more destructive
+    # than deleting a single prompt, so neither the collection nor its prompts are
+    # removed: storage stamps deleted_on on all of them and reads filter them out.
+    # The records, and each prompt's collection_id, survive so the collection could
+    # be restored or its prompts moved elsewhere with a small amount of extra logic.
     if not storage.delete_collection(collection_id):
         raise HTTPException(status_code=404, detail="Collection not found")
-    
-    # Missing: Handle prompts that belong to this collection!
-    
     return None

@@ -35,6 +35,7 @@ class Prompt(PromptBase):
     id: str = Field(default_factory=generate_id)
     created_at: datetime = Field(default_factory=get_current_time)
     updated_at: datetime = Field(default_factory=get_current_time)
+    deleted_on: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -54,6 +55,7 @@ class CollectionCreate(CollectionBase):
 class Collection(CollectionBase):
     id: str = Field(default_factory=generate_id)
     created_at: datetime = Field(default_factory=get_current_time)
+    deleted_on: Optional[datetime] = None
 
     class Config:
         from_attributes = True

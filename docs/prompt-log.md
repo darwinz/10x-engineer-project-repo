@@ -177,5 +177,24 @@ Reproduced before changing anything. On disk `api.py:104` reads `updated_at=get_
 Located the defect in `utils.sort_prompts_by_date`: `sorted(prompts, key=lambda p: p.created_at)` with the `descending` argument never used. Changed it to `sorted(prompts, key=lambda p: p.created_at, reverse=descending)` and removed the `BUG #3` comments. Added `tests/test_utils.py` with three unit tests for the helper: default is newest-first, `descending=False` is oldest-first, and the input list is not mutated. Suite: **17 passed, 0 failed** — first fully green run. End-to-end on a fresh server: created "First", "Second", "Third" 200 ms apart; `GET /prompts` returned Third, Second, First with descending `created_at` values. Provided a curl command set for self-verification.
 
 **Outcome:** Accepted — confirmed via curl on my own server: three prompts created in sequence came back newest first from `GET /prompts`.
+**Why I changed my next prompt:** Bug #3 confirmed. For Bug #4 I replaced the strategy chosen during setup (null the field) with soft delete + cascade, stated the reasoning I want on record, and required a test-first approach.
+
+## P-09 — Fix Bug #4 with cascading soft delete, test-first
+
+**Stage:** Bug fix
+**Context given:** Files: `backend/app/models.py` (`Prompt`, `Collection`), `backend/app/storage.py` (whole file — every read and both deletes), `backend/app/api.py` (`delete_collection`, `delete_prompt`, and the reads that must now 404/400), `backend/tests/test_api.py`.
+**Why that context:** Unlike Bugs #1–#3, soft delete is not a local change: once records stay in the store, every read path has to exclude them or "deleted" data leaks back out. The storage layer is where all reads and deletes meet, so the whole file was in scope; the handlers needed checking but turned out not to need changes because they already route through `storage.get_*`.
+
+**Prompt (verbatim):**
+> Let's fix Bug #4.  Deleting a collection is orphaning its prompts.  Make sure deletion is soft delete, so set a deleted_on datetime field that is null by default and is set to a value on delete.  Same with the prompts.  Cascade soft delete the prompts that belong to a collection on collection deletion.  Add a test before implementing the logic (test-driven development).  The reasoning for this strategy, is that deleting a collection is more desctructive than deleting a single prompt, so if there was a problem after deletion, we could still retrieve the collection or the prompts and potentially re-enable or undelete the collection or move a prompt to another collection with some additional logic added.
+
+**Response (summarised — relevant part):**
+Claude first stated the design it would test against, because soft delete has consequences beyond the delete handler: `deleted_on: Optional[datetime] = None` on `Prompt` and `Collection` only (not on the create/update bodies); every read excludes soft-deleted records (GET by id → 404, lists omit, PUT on deleted → 404, POST into a deleted collection → 400); deleting twice → 404; cascade stamps the *same* `deleted_on` on the collection and its active prompts and leaves `collection_id` intact for a future undelete; `get_prompt`/`get_collection` gain `include_deleted=False` so tests and future restore logic can reach soft-deleted records.
+
+**Red:** replaced the provided `test_delete_collection_with_prompts` (which asserted the orphaned state) and added ten tests across `TestCollections` and a new `TestSoftDelete` class — not-found, empty collection, cascade with shared timestamp and preserved `collection_id`, other collections' prompts untouched, delete-twice 404, create-into-deleted 400, `deleted_on` null by default, prompt soft delete visible via `include_deleted`, update-deleted 404, and clients unable to set `deleted_on`. 5 failed / 22 passed.
+
+**Green:** `models.py` — `deleted_on` field on both stored models. `storage.py` — `get_prompt`/`get_collection` return `None` for soft-deleted unless `include_deleted=True`; `get_all_*` and `get_prompts_by_collection` filter on `deleted_on is None`; `delete_prompt(prompt_id, deleted_on=None)` stamps instead of `del`; `delete_collection` stamps the collection, then cascades via `get_prompts_by_collection` + `delete_prompt` with the same timestamp; `update_prompt` refuses deleted records. `api.py` — the handlers are unchanged in logic; the `BUG #4` comment block was replaced with the strategy reasoning. **27 passed, 0 failed** — all 13 original tests still pass. End-to-end on a fresh server: DELETE 204 → collection 404, its prompt 404, list shows only the unrelated prompt, second DELETE 404, POST into the deleted collection 400.
+
+**Outcome:** _(pending review)_
 **Why I changed my next prompt:** _(pending)_
 
