@@ -31,10 +31,19 @@ class PromptUpdate(PromptBase):
     pass
 
 
+class PromptPatch(BaseModel):
+    """Partial update body: every field optional, same constraints as PromptBase when given."""
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    content: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = Field(None, max_length=500)
+    collection_id: Optional[str] = None
+
+
 class Prompt(PromptBase):
     id: str = Field(default_factory=generate_id)
     created_at: datetime = Field(default_factory=get_current_time)
     updated_at: datetime = Field(default_factory=get_current_time)
+    deleted_on: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -54,6 +63,7 @@ class CollectionCreate(CollectionBase):
 class Collection(CollectionBase):
     id: str = Field(default_factory=generate_id)
     created_at: datetime = Field(default_factory=get_current_time)
+    deleted_on: Optional[datetime] = None
 
     class Config:
         from_attributes = True
