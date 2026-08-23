@@ -83,7 +83,7 @@ Per heading: **Architecture** — single-module monolith, global `storage` singl
 **Why that context:** The draft had to cover every heading, so whole-repo context was still appropriate; the added constraint changed *how* the context was used — claims about runtime behaviour were re-verified by execution before being written down.
 
 **Prompt (verbatim):**
-> Generate a draft of the SYSTEM_MODEL.md based on what you've said.  Make it sound like a human wrote it.  It MUST be accurate to the codebase, DO NOT GUESS.  Cover the areas that we've discussed in the write-up.
+> Generate a draft of the SYSTEM_MODEL.md based on what we've discussed.  It MUST be accurate to the codebase, DO NOT GUESS.  Cover the areas that we've discussed in the write-up.
 
 **Response (summarised — relevant part):**
 Before writing, Claude re-checked the one P-03 claim it had made from inference — that `reload=True` with an app object is "silently disabled" and `python main.py` still works. Printing the `uvicorn.run` source *around* the warning showed the branch ends in `sys.exit(1)`. Running `python main.py` confirmed it: the warning prints and the process exits with status 1 without binding a port; `uvicorn app.api:app --port 8765` started normally for contrast. Claude flagged the correction explicitly ("my P-03 claim was wrong"), then wrote `docs/SYSTEM_MODEL.md` (184 lines) with a dedicated subsection *The entry script does not work*, all eight required headings, and the context strategy table with P-01–P-03 rows filled and later stages marked *planned*. It also updated P-03's outcome in this log to quote the wrong sentence verbatim, per convention 2.
@@ -176,6 +176,6 @@ Reproduced before changing anything. On disk `api.py:104` reads `updated_at=get_
 **Response (summarised — relevant part):**
 Located the defect in `utils.sort_prompts_by_date`: `sorted(prompts, key=lambda p: p.created_at)` with the `descending` argument never used. Changed it to `sorted(prompts, key=lambda p: p.created_at, reverse=descending)` and removed the `BUG #3` comments. Added `tests/test_utils.py` with three unit tests for the helper: default is newest-first, `descending=False` is oldest-first, and the input list is not mutated. Suite: **17 passed, 0 failed** — first fully green run. End-to-end on a fresh server: created "First", "Second", "Third" 200 ms apart; `GET /prompts` returned Third, Second, First with descending `created_at` values. Provided a curl command set for self-verification.
 
-**Outcome:** _(pending review)_
+**Outcome:** Accepted — confirmed via curl on my own server: three prompts created in sequence came back newest first from `GET /prompts`.
 **Why I changed my next prompt:** _(pending)_
 
