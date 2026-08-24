@@ -18,15 +18,26 @@ class Storage:
     """
 
     def __init__(self):
+        """Initialize empty prompt and collection stores."""
         self._prompts: Dict[str, Prompt] = {}
         self._collections: Dict[str, Collection] = {}
-    
+
     # ============== Prompt Operations ==============
-    
+
     def create_prompt(self, prompt: Prompt) -> Prompt:
+        """Store a new prompt, keyed by its id.
+
+        Any existing prompt with the same id is overwritten.
+
+        Args:
+            prompt: The Prompt object to store.
+
+        Returns:
+            The same Prompt object that was passed in.
+        """
         self._prompts[prompt.id] = prompt
         return prompt
-    
+
     def get_prompt(self, prompt_id: str, include_deleted: bool = False) -> Optional[Prompt]:
         """Look up a prompt by id.
 
@@ -94,9 +105,19 @@ class Storage:
     # ============== Collection Operations ==============
     
     def create_collection(self, collection: Collection) -> Collection:
+        """Store a new collection, keyed by its id.
+
+        Any existing collection with the same id is overwritten.
+
+        Args:
+            collection: The Collection object to store.
+
+        Returns:
+            The same Collection object that was passed in.
+        """
         self._collections[collection.id] = collection
         return collection
-    
+
     def get_collection(self, collection_id: str, include_deleted: bool = False) -> Optional[Collection]:
         """Look up a collection by id.
 
@@ -165,8 +186,12 @@ class Storage:
         ]
     
     # ============== Utility ==============
-    
+
     def clear(self):
+        """Remove every prompt and collection, active or soft-deleted.
+
+        Intended for test isolation; there is no equivalent API endpoint.
+        """
         self._prompts.clear()
         self._collections.clear()
 
