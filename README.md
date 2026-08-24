@@ -86,68 +86,23 @@ curl -X POST http://localhost:8000/prompts \
 
 ## API Reference
 
-All endpoints accept and return JSON. Interactive, always-up-to-date documentation is served at `/docs`.
+All endpoints accept and return JSON, and require no authentication (see [Known Limitations](#known-limitations)). Interactive, always-up-to-date documentation is served at `/docs`.
 
-### Health
+**Full reference with request/response examples for every endpoint — including `PATCH`, error formats, and status codes — lives in [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md).**
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Health check — returns service status and version |
-
-### Prompts
-
-| Method | Endpoint | Description | Responses |
-|---|---|---|---|
-| `GET` | `/prompts` | List prompts, newest first. Optional `?collection_id=` and `?search=` (matches title and description) | `200` |
-| `GET` | `/prompts/{id}` | Get a single prompt | `200` `404` |
-| `POST` | `/prompts` | Create a prompt | `201` `400` unknown collection · `422` validation |
-| `PUT` | `/prompts/{id}` | Replace a prompt — all fields required; bumps `updated_at` | `200` `404` `400` `422` |
-| `PATCH` | `/prompts/{id}` | Partially update a prompt — only fields in the body change; `null` clears `description`/`collection_id`; `null` on `title`/`content` is rejected | `200` `404` `400` `422` |
-| `DELETE` | `/prompts/{id}` | Soft-delete a prompt | `204` `404` |
-
-### Collections
-
-| Method | Endpoint | Description | Responses |
-|---|---|---|---|
-| `GET` | `/collections` | List collections | `200` |
-| `GET` | `/collections/{id}` | Get a single collection | `200` `404` |
-| `POST` | `/collections` | Create a collection | `201` `422` |
-| `DELETE` | `/collections/{id}` | Soft-delete a collection and cascade-delete every prompt in it | `204` `404` |
-
-Soft-deleted records are excluded from every endpoint above; deleting an already-deleted record returns `404`.
-
-### Examples
-
-**Create a collection, then a prompt inside it:**
-
-```bash
-curl -X POST http://localhost:8000/collections \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "Code Review", "description": "Prompts for reviewing PRs"}'
-# -> {"id": "b1a7...", "name": "Code Review", ..., "deleted_on": null}
-
-curl -X POST http://localhost:8000/prompts \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "title": "Security review",
-        "content": "Look for vulnerabilities in:\n\n{{code}}",
-        "collection_id": "b1a7..."
-      }'
-```
-
-**Partially update just the description:**
-
-```bash
-curl -X PATCH http://localhost:8000/prompts/{id} \
-  -H 'Content-Type: application/json' \
-  -d '{"description": "Updated guidance for PR reviews"}'
-```
-
-**Search prompts within a collection:**
-
-```bash
-curl "http://localhost:8000/prompts?collection_id=b1a7...&search=security"
-```
+| `GET` | `/health` | Health check |
+| `GET` | `/prompts` | List prompts (filter by `collection_id`, `search`) |
+| `GET` | `/prompts/{id}` | Get one prompt |
+| `POST` | `/prompts` | Create a prompt |
+| `PUT` | `/prompts/{id}` | Full replace |
+| `PATCH` | `/prompts/{id}` | Partial update |
+| `DELETE` | `/prompts/{id}` | Soft-delete a prompt |
+| `GET` | `/collections` | List collections |
+| `GET` | `/collections/{id}` | Get one collection |
+| `POST` | `/collections` | Create a collection |
+| `DELETE` | `/collections/{id}` | Soft-delete a collection (cascades to its prompts) |
 
 ## Development Setup
 
