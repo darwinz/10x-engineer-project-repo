@@ -135,6 +135,106 @@ class TestPrompts:
         # Newest (Second) should be first
         assert prompts[0]["title"] == "Second"  # Will fail until Bug #3 fixed
 
+    def test_list_prompts_search_matches_title(self, client: TestClient):
+        client.post("/prompts", json={"title": "Security review", "content": "Look for issues"})
+        client.post("/prompts", json={"title": "Code review", "content": "Something else"})
+
+        response = client.get("/prompts?search=security")
+        titles = [p["title"] for p in response.json()["prompts"]]
+        assert titles == ["Security review"]
+
+    def test_list_prompts_search_matches_description(self, client: TestClient):
+        client.post(
+            "/prompts",
+            json={"title": "Untitled", "content": "content", "description": "Helps with OWASP audits"},
+        )
+        response = client.get("/prompts?search=owasp")
+        assert response.json()["total"] == 1
+
+    def test_list_prompts_search_no_match_returns_empty(self, client: TestClient, sample_prompt_data):
+        client.post("/prompts", json=sample_prompt_data)
+        response = client.get("/prompts?search=nonexistent-term-xyz")
+        assert response.status_code == 200
+        assert response.json() == {"prompts": [], "total": 0}
+
+    def test_list_prompts_collection_and_search_combine(self, client: TestClient, sample_collection_data):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        client.post(
+            "/prompts",
+            json={"title": "Security review", "content": "c", "collection_id": collection_id},
+        )
+        client.post("/prompts", json={"title": "Security review", "content": "c"})  # no collection
+
+        response = client.get(f"/prompts?collection_id={collection_id}&search=security")
+        assert response.json()["total"] == 1
+
+    def test_list_prompts_unknown_collection_id_returns_empty_not_error(self, client: TestClient, sample_prompt_data):
+        """An unmatched collection_id filter is not a validation error — just no results."""
+        client.post("/prompts", json=sample_prompt_data)
+        response = client.get("/prompts?collection_id=nonexistent-collection")
+        assert response.status_code == 200
+        assert response.json() == {"prompts": [], "total": 0}
+
+    def test_create_prompt_missing_title_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"content": "content only"})
+        assert response.status_code == 422
+
+    def test_create_prompt_missing_content_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"title": "title only"})
+        assert response.status_code == 422
+
+    def test_create_prompt_empty_title_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"title": "", "content": "content"})
+        assert response.status_code == 422
+
+    def test_create_prompt_title_too_long_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"title": "x" * 201, "content": "content"})
+        assert response.status_code == 422
+
+    def test_create_prompt_description_too_long_returns_422(self, client: TestClient):
+        response = client.post(
+            "/prompts", json={"title": "T", "content": "content", "description": "x" * 501}
+        )
+        assert response.status_code == 422
+
+    def test_create_prompt_unknown_collection_returns_400(self, client: TestClient, sample_prompt_data):
+        response = client.post("/prompts", json={**sample_prompt_data, "collection_id": "nonexistent"})
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Collection not found"}
+
+    def test_create_prompt_with_valid_collection_succeeds(
+        self, client: TestClient, sample_prompt_data, sample_collection_data
+    ):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        response = client.post("/prompts", json={**sample_prompt_data, "collection_id": collection_id})
+        assert response.status_code == 201
+        assert response.json()["collection_id"] == collection_id
+
+    def test_update_prompt_unknown_collection_returns_400(self, client: TestClient, sample_prompt_data):
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(
+            f"/prompts/{prompt_id}", json={**sample_prompt_data, "collection_id": "nonexistent"}
+        )
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Collection not found"}
+
+    def test_update_prompt_missing_content_returns_422(self, client: TestClient, sample_prompt_data):
+        """PUT requires the full PromptUpdate shape; a missing required field is 422, not silently kept."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(f"/prompts/{prompt_id}", json={"title": "Only title"})
+        assert response.status_code == 422
+
+    def test_update_prompt_omitted_optional_fields_are_cleared(self, client: TestClient, sample_prompt_data):
+        """PUT is a full replace: description isn't resent, so it's cleared rather than kept."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(f"/prompts/{prompt_id}", json={"title": "T", "content": "New content"})
+        assert response.status_code == 200
+        assert response.json()["description"] is None
+
+    def test_update_prompt_preserves_id(self, client: TestClient, sample_prompt_data):
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(f"/prompts/{prompt_id}", json=sample_prompt_data)
+        assert response.json()["id"] == prompt_id
 
 
 class TestPatchPrompt:
@@ -277,15 +377,41 @@ class TestCollections:
     
     def test_list_collections(self, client: TestClient, sample_collection_data):
         client.post("/collections", json=sample_collection_data)
-        
+
         response = client.get("/collections")
         assert response.status_code == 200
         data = response.json()
         assert len(data["collections"]) == 1
-    
+
+    def test_list_collections_empty(self, client: TestClient):
+        response = client.get("/collections")
+        assert response.status_code == 200
+        assert response.json() == {"collections": [], "total": 0}
+
+    def test_get_collection_success(self, client: TestClient, sample_collection_data):
+        created = client.post("/collections", json=sample_collection_data).json()
+        response = client.get(f"/collections/{created['id']}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == created["id"]
+        assert data["name"] == sample_collection_data["name"]
+
     def test_get_collection_not_found(self, client: TestClient):
         response = client.get("/collections/nonexistent-id")
         assert response.status_code == 404
+        assert response.json() == {"detail": "Collection not found"}
+
+    def test_create_collection_empty_name_returns_422(self, client: TestClient):
+        response = client.post("/collections", json={"name": ""})
+        assert response.status_code == 422
+
+    def test_create_collection_name_too_long_returns_422(self, client: TestClient):
+        response = client.post("/collections", json={"name": "x" * 101})
+        assert response.status_code == 422
+
+    def test_create_collection_description_too_long_returns_422(self, client: TestClient):
+        response = client.post("/collections", json={"name": "N", "description": "x" * 501})
+        assert response.status_code == 422
     
     def test_delete_collection_not_found(self, client: TestClient):
         """DELETE on a collection id that was never created returns 404."""
