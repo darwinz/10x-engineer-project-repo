@@ -7,7 +7,7 @@ from typing import Optional
 from app.models import (
     Prompt, PromptCreate, PromptUpdate, PromptPatch,
     Collection, CollectionCreate,
-    PromptList, CollectionList, HealthResponse, PromptVersionList,
+    PromptList, CollectionList, HealthResponse, PromptVersion, PromptVersionList,
     get_current_time
 )
 from app.storage import storage
@@ -300,6 +300,30 @@ def list_prompt_versions(prompt_id: str):
 
     versions = sorted(storage.get_prompt_versions(prompt_id), key=lambda v: v.version_number, reverse=True)
     return PromptVersionList(versions=versions, total=len(versions))
+
+
+@app.get("/prompts/{prompt_id}/versions/{version_number}", response_model=PromptVersion)
+def get_prompt_version(prompt_id: str, version_number: int):
+    """Return one specific version of a prompt.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt.
+        version_number: Path parameter; the version to fetch.
+
+    Returns:
+        The matching PromptVersion.
+
+    Raises:
+        HTTPException: 404 if no prompt has that id or it has been
+            soft-deleted; 404 if the prompt exists but has no such version.
+    """
+    if not storage.get_prompt(prompt_id):
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    version = storage.get_prompt_version(prompt_id, version_number)
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return version
 
 
 # ============== Collection Endpoints ==============

@@ -145,6 +145,22 @@ class Storage:
         """
         return list(self._versions.get(prompt_id, []))
 
+    def get_prompt_version(self, prompt_id: str, version_number: int) -> Optional[PromptVersion]:
+        """Look up one specific version of a prompt.
+
+        Args:
+            prompt_id: The id of the prompt the version belongs to.
+            version_number: The version_number to look up.
+
+        Returns:
+            The matching PromptVersion, or None if the prompt has no version
+            with that number (including if the prompt doesn't exist).
+        """
+        for version in self._versions.get(prompt_id, []):
+            if version.version_number == version_number:
+                return version
+        return None
+
     # ============== Collection Operations ==============
     
     def create_collection(self, collection: Collection) -> Collection:
