@@ -326,6 +326,49 @@ def get_prompt_version(prompt_id: str, version_number: int):
     return version
 
 
+@app.post("/prompts/{prompt_id}/versions/{version_number}/restore", response_model=Prompt)
+def restore_prompt_version(prompt_id: str, version_number: int):
+    """Make a past version the prompt's current content again.
+
+    Sets the prompt's title/content/description to the given version's values
+    and always appends a new version with that same content — even when
+    restoring the prompt's own current version, this is never a no-op.
+    collection_id is untouched: restoring content never moves a prompt
+    between collections.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt to restore.
+        version_number: Path parameter; the version to restore.
+
+    Returns:
+        The updated Prompt.
+
+    Raises:
+        HTTPException: 404 if no prompt has that id or it has been
+            soft-deleted; 404 if the prompt exists but has no such version.
+    """
+    existing = storage.get_prompt(prompt_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    version = storage.get_prompt_version(prompt_id, version_number)
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    restored_at = get_current_time()
+    updated_prompt = Prompt(
+        id=existing.id,
+        title=version.title,
+        content=version.content,
+        description=version.description,
+        collection_id=existing.collection_id,
+        created_at=existing.created_at,
+        updated_at=restored_at,
+    )
+    storage.create_prompt_version(prompt_id, version.title, version.content, version.description, restored_at)
+    return storage.update_prompt(prompt_id, updated_prompt)
+
+
 # ============== Collection Endpoints ==============
 
 @app.get("/collections", response_model=CollectionList)
