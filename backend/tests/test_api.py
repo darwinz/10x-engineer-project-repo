@@ -432,6 +432,29 @@ class TestPromptVersions:
 
         assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
 
+    def test_list_versions_ordered_newest_first(self, client: TestClient, sample_prompt_data):
+        """3 versions come back highest version_number first (US-4)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v3 content"})
+
+        versions = client.get(f"/prompts/{prompt['id']}/versions").json()["versions"]
+        assert [v["version_number"] for v in versions] == [3, 2, 1]
+
+    def test_get_versions_for_unknown_prompt_returns_404(self, client: TestClient):
+        """GET /prompts/{id}/versions on an unknown prompt id returns 404 (US-4)."""
+        response = client.get("/prompts/nonexistent-id/versions")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_get_versions_for_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        """GET /prompts/{id}/versions on a soft-deleted prompt returns 404 (US-4)."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        client.delete(f"/prompts/{prompt_id}")
+
+        response = client.get(f"/prompts/{prompt_id}/versions")
+        assert response.status_code == 404
+
 
 class TestCollections:
     """Tests for collection endpoints."""
