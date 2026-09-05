@@ -6,16 +6,23 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import __version__
 from app.models import (
-    Prompt, PromptCreate, PromptUpdate, PromptPatch,
-    Collection, CollectionCreate,
-    PromptList, CollectionList, HealthResponse, PromptVersion, PromptVersionList,
-    get_current_time
+    Collection,
+    CollectionCreate,
+    CollectionList,
+    HealthResponse,
+    Prompt,
+    PromptCreate,
+    PromptList,
+    PromptPatch,
+    PromptUpdate,
+    PromptVersion,
+    PromptVersionList,
+    get_current_time,
 )
 from app.storage import storage
-from app.utils import sort_prompts_by_date, filter_prompts_by_collection, search_prompts
-from app import __version__
-
+from app.utils import filter_prompts_by_collection, search_prompts, sort_prompts_by_date
 
 app = FastAPI(
     title="PromptLab API",
@@ -93,19 +100,19 @@ def list_prompts(
         `created_at` descending, along with the count.
     """
     prompts = storage.get_all_prompts()
-    
+
     # Filter by collection if specified
     if collection_id:
         prompts = filter_prompts_by_collection(prompts, collection_id)
-    
+
     # Search if query provided
     if search:
         prompts = search_prompts(prompts, search)
-    
+
     # Sort by date (newest first)
     # Note: There might be an issue with the sorting...
     prompts = sort_prompts_by_date(prompts, descending=True)
-    
+
     return PromptList(prompts=prompts, total=len(prompts))
 
 
@@ -150,7 +157,7 @@ def create_prompt(prompt_data: PromptCreate):
         collection = storage.get_collection(prompt_data.collection_id)
         if not collection:
             raise HTTPException(status_code=400, detail="Collection not found")
-    
+
     prompt = Prompt(**prompt_data.model_dump())
     storage.create_prompt(prompt)
     storage.create_prompt_version(
@@ -183,13 +190,13 @@ def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
     existing = storage.get_prompt(prompt_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Prompt not found")
-    
+
     # Validate collection if provided
     if prompt_data.collection_id:
         collection = storage.get_collection(prompt_data.collection_id)
         if not collection:
             raise HTTPException(status_code=400, detail="Collection not found")
-    
+
     updated_prompt = Prompt(
         id=existing.id,
         title=prompt_data.title,
@@ -233,22 +240,22 @@ def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
     existing = storage.get_prompt(prompt_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Prompt not found")
-    
+
     # Only fields present in the request body count — an omitted field is left
     # alone, an explicit null clears it.
     updates = prompt_data.model_dump(exclude_unset=True)
-    
+
     # title and content are required on a prompt, so they can be changed but not cleared
     for field in ("title", "content"):
         if field in updates and updates[field] is None:
             raise HTTPException(status_code=400, detail=f"{field} cannot be null")
-    
+
     # Validate collection if provided
     if updates.get("collection_id"):
         collection = storage.get_collection(updates["collection_id"])
         if not collection:
             raise HTTPException(status_code=400, detail="Collection not found")
-    
+
     new_title = updates.get("title", existing.title)
     new_content = updates.get("content", existing.content)
     new_description = updates.get("description", existing.description)
@@ -263,7 +270,9 @@ def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
         updated_at=get_current_time()
     )
 
-    _snapshot_version_if_changed(prompt_id, existing, new_title, new_content, new_description, updated_prompt.updated_at)
+    _snapshot_version_if_changed(
+        prompt_id, existing, new_title, new_content, new_description, updated_prompt.updated_at
+    )
 
     return storage.update_prompt(prompt_id, updated_prompt)
 

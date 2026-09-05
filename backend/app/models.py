@@ -1,9 +1,10 @@
 """Pydantic models for PromptLab"""
 
 from datetime import datetime
-from typing import Optional, List
-from pydantic import BaseModel, Field
+from typing import List, Optional
 from uuid import uuid4
+
+from pydantic import BaseModel, Field
 
 
 def generate_id() -> str:
