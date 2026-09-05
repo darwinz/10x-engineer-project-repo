@@ -215,16 +215,25 @@ def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
         if not collection:
             raise HTTPException(status_code=400, detail="Collection not found")
     
+    new_title = updates.get("title", existing.title)
+    new_content = updates.get("content", existing.content)
+    new_description = updates.get("description", existing.description)
+
     updated_prompt = Prompt(
         id=existing.id,
-        title=updates.get("title", existing.title),
-        content=updates.get("content", existing.content),
-        description=updates.get("description", existing.description),
+        title=new_title,
+        content=new_content,
+        description=new_description,
         collection_id=updates.get("collection_id", existing.collection_id),
         created_at=existing.created_at,
         updated_at=get_current_time()
     )
-    
+
+    if (new_title, new_content, new_description) != (existing.title, existing.content, existing.description):
+        storage.create_prompt_version(
+            prompt_id, new_title, new_content, new_description, updated_prompt.updated_at
+        )
+
     return storage.update_prompt(prompt_id, updated_prompt)
 
 
