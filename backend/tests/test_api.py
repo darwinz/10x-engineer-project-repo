@@ -384,6 +384,16 @@ class TestPromptVersions:
         assert version["content"] == sample_prompt_data["content"]
         assert version["description"] == sample_prompt_data["description"]
 
+    def test_patch_changing_content_creates_version_2(self, client: TestClient, sample_prompt_data):
+        """A PATCH that changes content grows the version count from 1 to 2 (US-2)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "New content"})
+
+        versions = client.get(f"/prompts/{prompt['id']}/versions").json()
+        assert versions["total"] == 2
+        assert {v["version_number"] for v in versions["versions"]} == {1, 2}
+
 
 class TestCollections:
     """Tests for collection endpoints."""
