@@ -365,6 +365,26 @@ class TestPatchPrompt:
         assert data["created_at"] == original["created_at"]
         assert data["deleted_on"] is None
 
+
+class TestPromptVersions:
+    """Tests for GET /prompts/{id}/versions (specs/prompt-versions.md, US-1)."""
+
+    def test_creating_a_prompt_creates_version_1(self, client: TestClient, sample_prompt_data):
+        """POST /prompts immediately creates a version 1 snapshot matching the created prompt."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.get(f"/prompts/{prompt['id']}/versions")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        version = data["versions"][0]
+        assert version["version_number"] == 1
+        assert version["title"] == sample_prompt_data["title"]
+        assert version["content"] == sample_prompt_data["content"]
+        assert version["description"] == sample_prompt_data["description"]
+
+
 class TestCollections:
     """Tests for collection endpoints."""
     
