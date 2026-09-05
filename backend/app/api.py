@@ -282,16 +282,23 @@ def delete_prompt(prompt_id: str):
 
 @app.get("/prompts/{prompt_id}/versions", response_model=PromptVersionList)
 def list_prompt_versions(prompt_id: str):
-    """List a prompt's saved versions, oldest first.
+    """List a prompt's saved versions, newest first.
 
     Args:
         prompt_id: Path parameter; the id of the prompt whose versions to list.
 
     Returns:
-        A PromptVersionList of the prompt's versions, in creation order,
-        and a count.
+        A PromptVersionList of the prompt's versions, ordered by
+        version_number descending, and a count.
+
+    Raises:
+        HTTPException: 404 if no prompt has that id or the prompt has been
+            soft-deleted.
     """
-    versions = storage.get_prompt_versions(prompt_id)
+    if not storage.get_prompt(prompt_id):
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    versions = sorted(storage.get_prompt_versions(prompt_id), key=lambda v: v.version_number, reverse=True)
     return PromptVersionList(versions=versions, total=len(versions))
 
 
