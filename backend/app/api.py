@@ -7,7 +7,7 @@ from typing import Optional
 from app.models import (
     Prompt, PromptCreate, PromptUpdate, PromptPatch,
     Collection, CollectionCreate,
-    PromptList, CollectionList, HealthResponse,
+    PromptList, CollectionList, HealthResponse, PromptVersionList,
     get_current_time
 )
 from app.storage import storage
@@ -123,7 +123,11 @@ def create_prompt(prompt_data: PromptCreate):
             raise HTTPException(status_code=400, detail="Collection not found")
     
     prompt = Prompt(**prompt_data.model_dump())
-    return storage.create_prompt(prompt)
+    storage.create_prompt(prompt)
+    storage.create_prompt_version(
+        prompt.id, prompt.title, prompt.content, prompt.description, prompt.created_at
+    )
+    return prompt
 
 
 @app.put("/prompts/{prompt_id}", response_model=Prompt)
@@ -241,6 +245,22 @@ def delete_prompt(prompt_id: str):
     if not storage.delete_prompt(prompt_id):
         raise HTTPException(status_code=404, detail="Prompt not found")
     return None
+
+
+# ============== Prompt Version Endpoints ==============
+
+@app.get("/prompts/{prompt_id}/versions", response_model=PromptVersionList)
+def list_prompt_versions(prompt_id: str):
+    """List a prompt's saved versions, newest first.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt whose versions to list.
+
+    Returns:
+        A PromptVersionList of the prompt's versions and a count.
+    """
+    versions = storage.get_prompt_versions(prompt_id)
+    return PromptVersionList(versions=versions, total=len(versions))
 
 
 # ============== Collection Endpoints ==============

@@ -137,6 +137,41 @@ class Collection(CollectionBase):
         from_attributes = True
 
 
+# ============== Prompt Version Models ==============
+
+class PromptVersion(BaseModel):
+    """An immutable snapshot of a prompt's editable content at one point in time.
+
+    Attributes:
+        id: Server-generated uuid4 string, unique across all versions.
+        prompt_id: The id of the Prompt this version belongs to.
+        version_number: 1-based, increasing per prompt. 1 is always the
+            state at creation.
+        title: The prompt's title at this version.
+        content: The prompt's template text at this version.
+        description: The prompt's description at this version, or None.
+        created_at: When this version was captured.
+    """
+    id: str = Field(default_factory=generate_id)
+    prompt_id: str
+    version_number: int
+    title: str
+    content: str
+    description: Optional[str] = None
+    created_at: datetime = Field(default_factory=get_current_time)
+
+
+class PromptVersionList(BaseModel):
+    """Response body for GET /prompts/{id}/versions.
+
+    Attributes:
+        versions: The prompt's versions.
+        total: The number of versions in `versions`.
+    """
+    versions: List[PromptVersion]
+    total: int
+
+
 # ============== Response Models ==============
 
 class PromptList(BaseModel):

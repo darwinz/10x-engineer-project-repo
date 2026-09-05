@@ -6,7 +6,7 @@ In a production environment, this would be replaced with a database.
 
 from datetime import datetime
 from typing import Dict, List, Optional
-from app.models import Prompt, Collection, get_current_time
+from app.models import Collection, Prompt, PromptVersion, get_current_time
 
 
 class Storage:
@@ -18,9 +18,10 @@ class Storage:
     """
 
     def __init__(self):
-        """Initialize empty prompt and collection stores."""
+        """Initialize empty prompt, collection, and version stores."""
         self._prompts: Dict[str, Prompt] = {}
         self._collections: Dict[str, Collection] = {}
+        self._versions: Dict[str, List[PromptVersion]] = {}
 
     # ============== Prompt Operations ==============
 
@@ -101,7 +102,49 @@ class Storage:
             return False
         prompt.deleted_on = deleted_on or get_current_time()
         return True
-    
+
+    # ============== Prompt Version Operations ==============
+
+    def create_prompt_version(
+        self, prompt_id: str, title: str, content: str, description: Optional[str], created_at: datetime
+    ) -> PromptVersion:
+        """Append a new version snapshot for a prompt.
+
+        Args:
+            prompt_id: The id of the prompt this version belongs to.
+            title: The prompt's title at this version.
+            content: The prompt's content at this version.
+            description: The prompt's description at this version, or None.
+            created_at: The timestamp to record for this version.
+
+        Returns:
+            The newly created PromptVersion, with version_number one higher
+            than the prompt's current version count (1 for the first).
+        """
+        existing = self._versions.setdefault(prompt_id, [])
+        version = PromptVersion(
+            prompt_id=prompt_id,
+            version_number=len(existing) + 1,
+            title=title,
+            content=content,
+            description=description,
+            created_at=created_at,
+        )
+        existing.append(version)
+        return version
+
+    def get_prompt_versions(self, prompt_id: str) -> List[PromptVersion]:
+        """Return every version saved for a prompt, oldest first.
+
+        Args:
+            prompt_id: The id of the prompt whose versions to return.
+
+        Returns:
+            A list of the prompt's PromptVersion objects in creation order.
+            Empty if the prompt has no versions (including if it doesn't exist).
+        """
+        return list(self._versions.get(prompt_id, []))
+
     # ============== Collection Operations ==============
     
     def create_collection(self, collection: Collection) -> Collection:
@@ -188,12 +231,13 @@ class Storage:
     # ============== Utility ==============
 
     def clear(self):
-        """Remove every prompt and collection, active or soft-deleted.
+        """Remove every prompt, collection, and version, active or soft-deleted.
 
         Intended for test isolation; there is no equivalent API endpoint.
         """
         self._prompts.clear()
         self._collections.clear()
+        self._versions.clear()
 
 
 # Global storage instance
