@@ -394,6 +394,25 @@ class TestPromptVersions:
         assert versions["total"] == 2
         assert {v["version_number"] for v in versions["versions"]} == {1, 2}
 
+    def test_patch_only_collection_id_does_not_create_new_version(
+        self, client: TestClient, sample_prompt_data, sample_collection_data
+    ):
+        """A PATCH that touches only collection_id isn't a content change (US-2)."""
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.patch(f"/prompts/{prompt['id']}", json={"collection_id": collection_id})
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
+    def test_patch_empty_body_does_not_create_new_version(self, client: TestClient, sample_prompt_data):
+        """An empty-body PATCH is a no-op edit and must not create a new version (US-3)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.patch(f"/prompts/{prompt['id']}", json={})
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
 
 class TestCollections:
     """Tests for collection endpoints."""
