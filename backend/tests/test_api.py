@@ -383,6 +383,7 @@ class TestPromptVersions:
         assert version["title"] == sample_prompt_data["title"]
         assert version["content"] == sample_prompt_data["content"]
         assert version["description"] == sample_prompt_data["description"]
+        assert version["created_at"] == prompt["created_at"]
 
     def test_patch_changing_content_creates_version_2(self, client: TestClient, sample_prompt_data):
         """A PATCH that changes content grows the version count from 1 to 2 (US-2)."""
@@ -553,6 +554,27 @@ class TestPromptVersions:
         response = client.post("/prompts/nonexistent-id/versions/1/restore")
         assert response.status_code == 404
         assert response.json() == {"detail": "Prompt not found"}
+
+    def test_restore_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        """Restoring on a soft-deleted prompt is 404, same as every other prompt sub-resource (US-6)."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        client.delete(f"/prompts/{prompt_id}")
+
+        response = client.post(f"/prompts/{prompt_id}/versions/1/restore")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_restore_bumps_updated_at(self, client: TestClient, sample_prompt_data):
+        """Restoring is itself an edit: updated_at moves forward (US-6)."""
+        import time
+
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        time.sleep(0.05)
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert response.json()["updated_at"] > prompt["updated_at"]
 
 
 class TestCollections:
