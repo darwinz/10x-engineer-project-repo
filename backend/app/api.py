@@ -31,6 +31,26 @@ app.add_middleware(
 )
 
 
+def _snapshot_version_if_changed(prompt_id, existing, new_title, new_content, new_description, updated_at):
+    """Create a new prompt version, but only if the editable content actually changed.
+
+    Shared by update_prompt (PUT) and patch_prompt (PATCH): both compute a candidate
+    new title/content/description and must snapshot a version only when at least one
+    of them differs from the prompt's current stored values (specs/prompt-versions.md,
+    US-2/US-3) — a no-op edit must not create version noise.
+
+    Args:
+        prompt_id: The id of the prompt being updated.
+        existing: The prompt's current stored state, before this update.
+        new_title: The candidate new title.
+        new_content: The candidate new content.
+        new_description: The candidate new description.
+        updated_at: The timestamp to record on the new version, if created.
+    """
+    if (new_title, new_content, new_description) != (existing.title, existing.content, existing.description):
+        storage.create_prompt_version(prompt_id, new_title, new_content, new_description, updated_at)
+
+
 # ============== Health Check ==============
 
 @app.get("/health", response_model=HealthResponse)
@@ -171,13 +191,10 @@ def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
         updated_at=get_current_time()
     )
 
-    changed = (prompt_data.title, prompt_data.content, prompt_data.description) != (
-        existing.title, existing.content, existing.description
+    _snapshot_version_if_changed(
+        prompt_id, existing, prompt_data.title, prompt_data.content, prompt_data.description,
+        updated_prompt.updated_at,
     )
-    if changed:
-        storage.create_prompt_version(
-            prompt_id, prompt_data.title, prompt_data.content, prompt_data.description, updated_prompt.updated_at
-        )
 
     return storage.update_prompt(prompt_id, updated_prompt)
 
@@ -237,10 +254,7 @@ def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
         updated_at=get_current_time()
     )
 
-    if (new_title, new_content, new_description) != (existing.title, existing.content, existing.description):
-        storage.create_prompt_version(
-            prompt_id, new_title, new_content, new_description, updated_prompt.updated_at
-        )
+    _snapshot_version_if_changed(prompt_id, existing, new_title, new_content, new_description, updated_prompt.updated_at)
 
     return storage.update_prompt(prompt_id, updated_prompt)
 
