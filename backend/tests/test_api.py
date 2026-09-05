@@ -455,6 +455,42 @@ class TestPromptVersions:
         response = client.get(f"/prompts/{prompt_id}/versions")
         assert response.status_code == 404
 
+    def test_get_single_version_returns_its_content(self, client: TestClient, sample_prompt_data):
+        """GET /prompts/{id}/versions/1 returns version 1's stored title/content/description (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        response = client.get(f"/prompts/{prompt['id']}/versions/1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["version_number"] == 1
+        assert data["title"] == sample_prompt_data["title"]
+        assert data["content"] == sample_prompt_data["content"]
+
+    def test_get_single_version_unknown_version_number_returns_404(self, client: TestClient, sample_prompt_data):
+        """A version_number that doesn't exist on this prompt is 404 'Version not found' (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.get(f"/prompts/{prompt['id']}/versions/99")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Version not found"}
+
+    def test_get_single_version_unknown_prompt_returns_404_prompt_not_found(self, client: TestClient):
+        """An unknown prompt id is 404 'Prompt not found', distinct from an unknown version (US-5)."""
+        response = client.get("/prompts/nonexistent-id/versions/1")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_get_single_version_non_integer_returns_422(self, client: TestClient, sample_prompt_data):
+        """A non-integer version_number is rejected by FastAPI's path-parameter validation (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.get(f"/prompts/{prompt['id']}/versions/not-a-number")
+
+        assert response.status_code == 422
+
 
 class TestCollections:
     """Tests for collection endpoints."""
