@@ -413,6 +413,25 @@ class TestPromptVersions:
 
         assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
 
+    def test_put_changing_content_creates_new_version(self, client: TestClient, sample_prompt_data):
+        """A PUT that changes content grows the version count from 1 to 2 (US-2)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.put(
+            f"/prompts/{prompt['id']}",
+            json={**sample_prompt_data, "content": "Completely different content"},
+        )
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 2
+
+    def test_put_identical_values_does_not_create_new_version(self, client: TestClient, sample_prompt_data):
+        """A PUT that resends the exact same title/content/description is a no-op edit (US-3)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.put(f"/prompts/{prompt['id']}", json=sample_prompt_data)
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
 
 class TestCollections:
     """Tests for collection endpoints."""
