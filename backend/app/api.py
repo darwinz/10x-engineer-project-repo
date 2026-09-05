@@ -251,13 +251,14 @@ def delete_prompt(prompt_id: str):
 
 @app.get("/prompts/{prompt_id}/versions", response_model=PromptVersionList)
 def list_prompt_versions(prompt_id: str):
-    """List a prompt's saved versions, newest first.
+    """List a prompt's saved versions, oldest first.
 
     Args:
         prompt_id: Path parameter; the id of the prompt whose versions to list.
 
     Returns:
-        A PromptVersionList of the prompt's versions and a count.
+        A PromptVersionList of the prompt's versions, in creation order,
+        and a count.
     """
     versions = storage.get_prompt_versions(prompt_id)
     return PromptVersionList(versions=versions, total=len(versions))
