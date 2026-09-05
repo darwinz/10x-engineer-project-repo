@@ -1,8 +1,10 @@
 """FastAPI routes for PromptLab"""
 
+from datetime import datetime
+from typing import Optional
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
 
 from app.models import (
     Prompt, PromptCreate, PromptUpdate, PromptPatch,
@@ -31,7 +33,14 @@ app.add_middleware(
 )
 
 
-def _snapshot_version_if_changed(prompt_id, existing, new_title, new_content, new_description, updated_at):
+def _snapshot_version_if_changed(
+    prompt_id: str,
+    existing: Prompt,
+    new_title: str,
+    new_content: str,
+    new_description: Optional[str],
+    updated_at: datetime,
+) -> None:
     """Create a new prompt version, but only if the editable content actually changed.
 
     Shared by update_prompt (PUT) and patch_prompt (PATCH): both compute a candidate
