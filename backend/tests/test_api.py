@@ -491,6 +491,69 @@ class TestPromptVersions:
 
         assert response.status_code == 422
 
+    def test_restore_sets_prompt_content_to_that_version(self, client: TestClient, sample_prompt_data):
+        """Restoring version 1 after a content change makes the live prompt match version 1 again (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content"] == sample_prompt_data["content"]
+        assert data["title"] == sample_prompt_data["title"]
+        assert data["id"] == prompt["id"]
+
+    def test_restore_leaves_collection_id_untouched(
+        self, client: TestClient, sample_prompt_data, sample_collection_data
+    ):
+        """Restoring content never moves the prompt between collections (US-6)."""
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        prompt = client.post(
+            "/prompts", json={**sample_prompt_data, "collection_id": collection_id}
+        ).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert response.json()["collection_id"] == collection_id
+
+    def test_restore_creates_a_new_version(self, client: TestClient, sample_prompt_data):
+        """Restore always appends a new version rather than rewinding in place (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        versions = client.get(f"/prompts/{prompt['id']}/versions").json()
+        assert versions["total"] == 3
+        assert versions["versions"][0]["version_number"] == 3
+        assert versions["versions"][0]["content"] == sample_prompt_data["content"]
+
+    def test_restore_current_version_still_creates_a_new_version(self, client: TestClient, sample_prompt_data):
+        """Restoring the prompt's own current version is not a no-op — it still appends (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 2
+
+    def test_restore_unknown_version_returns_404_and_creates_nothing(self, client: TestClient, sample_prompt_data):
+        """Restoring a version_number that doesn't exist is 404 and does not create a version (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/99/restore")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Version not found"}
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
+    def test_restore_unknown_prompt_returns_404(self, client: TestClient):
+        """Restoring on an unknown prompt id is 404 'Prompt not found' (US-6)."""
+        response = client.post("/prompts/nonexistent-id/versions/1/restore")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
 
 class TestCollections:
     """Tests for collection endpoints."""
