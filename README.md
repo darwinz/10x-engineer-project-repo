@@ -19,6 +19,7 @@ The backend is a FastAPI service with full CRUD for prompts and collections, par
 - **Collections** — group related prompts under a named, searchable label
 - **Search & filter** — list prompts by collection or free-text search across title and description
 - **Partial updates** — `PATCH` changes only the fields you send; `PUT` replaces the whole record
+- **Version history** — every meaningful edit to a prompt's title, content, or description is saved automatically; browse past versions or restore one
 - **Soft deletes** — deleting a prompt or collection stamps `deleted_on` instead of destroying data; deleting a collection cascades to its prompts
 - **Interactive API docs** — Swagger UI and OpenAPI schema generated automatically by FastAPI
 - **CORS enabled** — ready to be called from a browser-based frontend during development
@@ -99,6 +100,9 @@ All endpoints accept and return JSON, and require no authentication (see [Known 
 | `PUT` | `/prompts/{id}` | Full replace |
 | `PATCH` | `/prompts/{id}` | Partial update |
 | `DELETE` | `/prompts/{id}` | Soft-delete a prompt |
+| `GET` | `/prompts/{id}/versions` | List a prompt's versions, newest first |
+| `GET` | `/prompts/{id}/versions/{version_number}` | Get one version |
+| `POST` | `/prompts/{id}/versions/{version_number}/restore` | Restore a past version |
 | `GET` | `/collections` | List collections |
 | `GET` | `/collections/{id}` | Get one collection |
 | `POST` | `/collections` | Create a collection |

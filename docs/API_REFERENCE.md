@@ -391,6 +391,88 @@ curl -i -X DELETE http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3b
 
 ---
 
+## Prompt Versions
+
+Every prompt automatically keeps a version history. Version 1 is created at `POST /prompts`; any `PUT` or `PATCH` that actually changes `title`, `content`, or `description` appends a new version (a no-op edit — identical values, an empty `PATCH` body, or a `PATCH` touching only `collection_id` — does not). See [`specs/prompt-versions.md`](../specs/prompt-versions.md) for the full design.
+
+### `GET /prompts/{id}/versions`
+
+List a prompt's versions, newest (highest `version_number`) first.
+
+**Request**
+
+```bash
+curl http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/versions
+```
+
+**Response** — `200`
+
+```json
+{
+  "versions": [
+    {
+      "id": "c1a0...",
+      "prompt_id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
+      "version_number": 2,
+      "title": "Security review v2",
+      "content": "Look for vulnerabilities:\n\n{{code}}",
+      "description": "Now covers OWASP top 10",
+      "created_at": "2026-08-24T05:43:00.871126"
+    },
+    {
+      "id": "80184e58-...",
+      "prompt_id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
+      "version_number": 1,
+      "title": "Security review",
+      "content": "Look for vulnerabilities in:\n\n{{code}}",
+      "description": "Security-focused review",
+      "created_at": "2026-08-24T05:42:37.701035"
+    }
+  ],
+  "total": 2
+}
+```
+
+**Error** — `404` (unknown or soft-deleted prompt): `{"detail": "Prompt not found"}`
+
+### `GET /prompts/{id}/versions/{version_number}`
+
+Get one specific version.
+
+**Request**
+
+```bash
+curl http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/versions/1
+```
+
+**Response** — `200`, a single version object (same shape as one entry above).
+
+**Errors**
+
+- `404` — prompt unknown/soft-deleted: `{"detail": "Prompt not found"}`
+- `404` — prompt exists but has no such version: `{"detail": "Version not found"}`
+- `422` — `version_number` isn't an integer (FastAPI's automatic path-parameter validation)
+
+### `POST /prompts/{id}/versions/{version_number}/restore`
+
+Make a past version the prompt's current content again. `collection_id` is untouched. This is never a no-op — even restoring the prompt's own current version appends a new version.
+
+**Request**
+
+```bash
+curl -X POST http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/versions/1/restore
+```
+
+**Response** — `200`, the updated `Prompt` (same shape as `PUT`/`PATCH` responses).
+
+**Errors**
+
+- `404` — prompt unknown/soft-deleted: `{"detail": "Prompt not found"}`
+- `404` — no such version on this prompt: `{"detail": "Version not found"}`
+- `422` — `version_number` isn't an integer
+
+---
+
 ## Collections
 
 A collection has a `name` (1–100 chars) and an optional `description` (≤500 chars).
@@ -549,6 +631,9 @@ curl "http://localhost:8000/prompts?collection_id=f54e432e-405a-4739-9911-b89a99
 | `PUT` | `/prompts/{id}` | Full replace |
 | `PATCH` | `/prompts/{id}` | Partial update |
 | `DELETE` | `/prompts/{id}` | Soft-delete a prompt |
+| `GET` | `/prompts/{id}/versions` | List a prompt's versions, newest first |
+| `GET` | `/prompts/{id}/versions/{version_number}` | Get one version |
+| `POST` | `/prompts/{id}/versions/{version_number}/restore` | Restore a past version |
 | `GET` | `/collections` | List collections |
 | `GET` | `/collections/{id}` | Get one collection |
 | `POST` | `/collections` | Create a collection |
