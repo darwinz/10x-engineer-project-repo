@@ -170,7 +170,15 @@ def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
         created_at=existing.created_at,
         updated_at=get_current_time()
     )
-    
+
+    changed = (prompt_data.title, prompt_data.content, prompt_data.description) != (
+        existing.title, existing.content, existing.description
+    )
+    if changed:
+        storage.create_prompt_version(
+            prompt_id, prompt_data.title, prompt_data.content, prompt_data.description, updated_prompt.updated_at
+        )
+
     return storage.update_prompt(prompt_id, updated_prompt)
 
 
