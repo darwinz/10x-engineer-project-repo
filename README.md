@@ -59,6 +59,8 @@ Start the server:
 python main.py
 ```
 
+Prefer not to install Python locally? See [Docker](#docker) — `docker compose up --build` does the same thing in a container.
+
 The API listens on **http://localhost:8000**. `main.py` runs uvicorn with `--reload`, so it restarts on code changes under `backend/` — note that a restart also clears the in-memory store.
 
 Interactive docs are available at:
@@ -139,13 +141,64 @@ The suite (38 tests) uses FastAPI's `TestClient`, so the server does not need to
 │   │   └── utils.py            # Sort / filter / search helpers
 │   ├── tests/                  # pytest suite (API + unit tests)
 │   ├── main.py                 # Entry point (`python main.py`)
-│   └── requirements.txt        # Pinned dependencies
+│   ├── requirements.txt        # Pinned dependencies
+│   ├── Dockerfile              # Container image (see Docker below)
+│   └── .dockerignore
 ├── docs/
 │   └── SYSTEM_MODEL.md         # Architecture, routes, data flow, storage
 ├── frontend/                   # React frontend (planned)
 ├── specs/                      # Feature specifications (planned)
+├── docker-compose.yml          # Local dev: build + run with hot reload
 └── .python-version             # Pins Python 3.12 for pyenv / uv
 ```
+
+## Docker
+
+No local Python setup required — this runs the same service inside a container, from what's committed in the repo.
+
+### Prerequisites
+
+- Docker with Compose v2 (`docker compose`, not the standalone `docker-compose` binary) — Docker Desktop, OrbStack, or equivalent.
+
+### Development (hot reload)
+
+From the repo root:
+
+```bash
+docker compose up --build
+```
+
+This builds `backend/Dockerfile`, maps container port `8000` to `http://localhost:8000`, and bind-mounts `backend/` into the container so edits on your host take effect immediately — the container runs `python main.py`, which starts uvicorn with `reload=True`, so it restarts itself on file changes with no rebuild needed.
+
+```bash
+curl http://localhost:8000/health
+# {"status":"healthy","version":"0.1.0"}
+```
+
+Stop it with `docker compose down` (add `-v` only if you've added volumes you want cleared — there are none by default here, since storage is in-memory).
+
+### Running the built image directly (no reload)
+
+To build and run the image the way it would run in production, without Compose or the dev bind-mount:
+
+```bash
+cd backend
+docker build -t promptlab-backend .
+docker run -p 8000:8000 promptlab-backend
+```
+
+This uses the Dockerfile's own `CMD` (`uvicorn app.api:app --host 0.0.0.0 --port 8000`, no `--reload`) — code is baked into the image at build time, not mounted from the host.
+
+### What's in the image
+
+- Base: `python:3.12.8-slim`, matching the pinned `pydantic==2.5.3` requirement (no wheels for 3.13+).
+- Dependencies installed from `backend/requirements.txt` in their own layer, so rebuilds are fast unless that file changes.
+- Runs as a non-root user (`appuser`), not the image's default root.
+- `backend/.dockerignore` keeps `.venv/`, `tests/`, caches, and `.git` out of the build context.
+
+### Known Docker-specific limitation
+
+Storage is in-memory per the running process (see [Known Limitations](#known-limitations) below) — `docker compose up` with hot reload restarts that process on every code change, clearing storage each time, same as running `python main.py` outside Docker. Stopping and removing the container also loses all data; there's no volume for the (nonexistent) database.
 
 ### Known Limitations
 
