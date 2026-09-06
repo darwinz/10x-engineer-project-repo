@@ -40,6 +40,30 @@ app.add_middleware(
 )
 
 
+def _get_prompt_or_404(prompt_id: str) -> Prompt:
+    """Look up an active prompt by id, raising 404 if it doesn't exist.
+
+    Shared by every route that needs a prompt to already exist before doing
+    anything else. Six call sites (get_prompt, update_prompt, patch_prompt,
+    list_prompt_versions, get_prompt_version, restore_prompt_version) used
+    to repeat this exact lookup-or-404 block inline.
+
+    Args:
+        prompt_id: The id of the prompt to fetch.
+
+    Returns:
+        The matching Prompt.
+
+    Raises:
+        HTTPException: 404 if no prompt has that id or the prompt has been
+            soft-deleted.
+    """
+    prompt = storage.get_prompt(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return prompt
+
+
 def _snapshot_version_if_changed(
     prompt_id: str,
     existing: Prompt,
@@ -130,10 +154,7 @@ def get_prompt(prompt_id: str):
         HTTPException: 404 if no prompt has that id or the prompt has been
             soft-deleted.
     """
-    prompt = storage.get_prompt(prompt_id)
-    if not prompt:
-        raise HTTPException(status_code=404, detail="Prompt not found")
-    return prompt
+    return _get_prompt_or_404(prompt_id)
 
 
 @app.post("/prompts", response_model=Prompt, status_code=201)
@@ -187,9 +208,7 @@ def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
             prompt_data.collection_id is set but no active collection has
             that id.
     """
-    existing = storage.get_prompt(prompt_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Prompt not found")
+    existing = _get_prompt_or_404(prompt_id)
 
     # Validate collection if provided
     if prompt_data.collection_id:
@@ -237,9 +256,7 @@ def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
             content is sent as null, or if collection_id is set to an id that
             does not belong to an active collection.
     """
-    existing = storage.get_prompt(prompt_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Prompt not found")
+    existing = _get_prompt_or_404(prompt_id)
 
     # Only fields present in the request body count — an omitted field is left
     # alone, an explicit null clears it.
@@ -313,8 +330,7 @@ def list_prompt_versions(prompt_id: str):
         HTTPException: 404 if no prompt has that id or the prompt has been
             soft-deleted.
     """
-    if not storage.get_prompt(prompt_id):
-        raise HTTPException(status_code=404, detail="Prompt not found")
+    _get_prompt_or_404(prompt_id)
 
     versions = sorted(storage.get_prompt_versions(prompt_id), key=lambda v: v.version_number, reverse=True)
     return PromptVersionList(versions=versions, total=len(versions))
@@ -335,8 +351,7 @@ def get_prompt_version(prompt_id: str, version_number: int):
         HTTPException: 404 if no prompt has that id or it has been
             soft-deleted; 404 if the prompt exists but has no such version.
     """
-    if not storage.get_prompt(prompt_id):
-        raise HTTPException(status_code=404, detail="Prompt not found")
+    _get_prompt_or_404(prompt_id)
 
     version = storage.get_prompt_version(prompt_id, version_number)
     if not version:
@@ -365,9 +380,7 @@ def restore_prompt_version(prompt_id: str, version_number: int):
         HTTPException: 404 if no prompt has that id or it has been
             soft-deleted; 404 if the prompt exists but has no such version.
     """
-    existing = storage.get_prompt(prompt_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Prompt not found")
+    existing = _get_prompt_or_404(prompt_id)
 
     version = storage.get_prompt_version(prompt_id, version_number)
     if not version:
