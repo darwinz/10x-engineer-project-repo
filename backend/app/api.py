@@ -340,9 +340,7 @@ def attach_tag_to_prompt(prompt_id: str, attach_data: PromptTagAttach):
             active tag has the given id; 400 if the prompt is already at
             the 10-tag cap and this would add a genuinely new tag.
     """
-    prompt = storage.get_prompt(prompt_id)
-    if not prompt:
-        raise HTTPException(status_code=404, detail="Prompt not found")
+    prompt = _get_prompt_or_404(prompt_id)
 
     tag = storage.get_tag(attach_data.tag_id)
     if not tag:

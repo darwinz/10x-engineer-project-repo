@@ -749,6 +749,13 @@ class TestTags:
         """Create a tag through the API and return the response body."""
         return client.post("/tags", json={"name": name}).json()
 
+    def _attach_n_tags(self, client: TestClient, prompt_id: str, n: int):
+        """Create n tags and attach every one to the given prompt; return the created tags in order."""
+        tags = [self._create_tag(client, f"tag-{i}") for i in range(n)]
+        for tag in tags:
+            client.post(f"/prompts/{prompt_id}/tags", json={"tag_id": tag["id"]})
+        return tags
+
     def test_create_tag_returns_201_with_fields(self, client: TestClient):
         """POST /tags with a name creates a Tag with a server-generated id (US-1)."""
         response = client.post("/tags", json={"name": "security"})
@@ -967,9 +974,7 @@ class TestTags:
     def test_attach_11th_distinct_tag_returns_400(self, client: TestClient, sample_prompt_data):
         """A prompt already at 10 tags rejects a genuinely new 11th (US-4)."""
         prompt = client.post("/prompts", json=sample_prompt_data).json()
-        for i in range(10):
-            tag = self._create_tag(client, f"tag-{i}")
-            client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        self._attach_n_tags(client, prompt["id"], 10)
         eleventh = self._create_tag(client, "one-too-many")
 
         response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": eleventh["id"]})
@@ -980,14 +985,9 @@ class TestTags:
     def test_attach_tag_at_cap_reattaching_existing_tag_still_succeeds(self, client: TestClient, sample_prompt_data):
         """Idempotency beats the cap: re-attaching one of the 10 already-there tags is never blocked (US-4)."""
         prompt = client.post("/prompts", json=sample_prompt_data).json()
-        first_tag = None
-        for i in range(10):
-            tag = self._create_tag(client, f"tag-{i}")
-            if i == 0:
-                first_tag = tag
-            client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        tags = self._attach_n_tags(client, prompt["id"], 10)
 
-        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": first_tag["id"]})
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tags[0]["id"]})
 
         assert response.status_code == 200
         assert len(response.json()["tag_ids"]) == 10
