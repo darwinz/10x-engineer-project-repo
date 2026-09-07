@@ -1105,3 +1105,85 @@ class TestTags:
         """When both the prompt and the attachment are bad, the prompt check runs first (US-5)."""
         response = client.delete("/prompts/nonexistent-prompt/tags/nonexistent-tag")
         assert response.json() == {"detail": "Prompt not found"}
+
+    def test_get_prompt_tags_returns_full_tag_objects(self, client: TestClient, sample_prompt_data):
+        """GET /prompts/{id}/tags returns full Tag objects, not just the ids (US-6)."""
+        prompt, tag = self._prompt_with_attached_tag(client, sample_prompt_data)
+
+        response = client.get(f"/prompts/{prompt['id']}/tags")
+
+        assert response.status_code == 200
+        assert response.json() == {"tags": [tag], "total": 1}
+
+    def test_get_prompt_tags_empty_is_not_404(self, client: TestClient, sample_prompt_data):
+        """A prompt with no tags is a normal empty list, not a 404 (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        response = client.get(f"/prompts/{prompt['id']}/tags")
+        assert response.status_code == 200
+        assert response.json() == {"tags": [], "total": 0}
+
+    def test_get_prompt_tags_unknown_prompt_returns_404(self, client: TestClient):
+        response = client.get("/prompts/nonexistent-id/tags")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_get_prompt_tags_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.delete(f"/prompts/{prompt['id']}")
+        response = client.get(f"/prompts/{prompt['id']}/tags")
+        assert response.status_code == 404
+
+    def test_list_prompts_filter_by_tag_id(self, client: TestClient, sample_prompt_data):
+        tagged, tag = self._prompt_with_attached_tag(client, sample_prompt_data)
+        client.post("/prompts", json={**sample_prompt_data, "title": "Untagged"})
+
+        response = client.get(f"/prompts?tag_id={tag['id']}")
+
+        data = response.json()
+        assert data["total"] == 1
+        assert data["prompts"][0]["id"] == tagged["id"]
+
+    def test_list_prompts_filter_by_tag_id_sorted_newest_first(self, client: TestClient, sample_prompt_data):
+        tag = self._create_tag(client, "security")
+        first = client.post("/prompts", json={**sample_prompt_data, "title": "First"}).json()
+        client.post(f"/prompts/{first['id']}/tags", json={"tag_id": tag["id"]})
+        second = client.post("/prompts", json={**sample_prompt_data, "title": "Second"}).json()
+        client.post(f"/prompts/{second['id']}/tags", json={"tag_id": tag["id"]})
+        # An untagged prompt created last: if the filter isn't actually applied, it would
+        # sort first (newest) and this assertion would catch that, instead of the filter's
+        # discriminating effect going untested because every prompt here happened to match.
+        client.post("/prompts", json={**sample_prompt_data, "title": "Untagged, newest"})
+
+        titles = [p["title"] for p in client.get(f"/prompts?tag_id={tag['id']}").json()["prompts"]]
+
+        assert titles == ["Second", "First"]
+
+    def test_list_prompts_filter_by_tag_id_and_collection_id_combines_with_and(
+        self, client: TestClient, sample_prompt_data, sample_collection_data
+    ):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        tag = self._create_tag(client, "security")
+        in_both = client.post(
+            "/prompts", json={**sample_prompt_data, "title": "In both", "collection_id": collection_id}
+        ).json()
+        client.post(f"/prompts/{in_both['id']}/tags", json={"tag_id": tag["id"]})
+        tag_only = client.post("/prompts", json={**sample_prompt_data, "title": "Tag only"}).json()
+        client.post(f"/prompts/{tag_only['id']}/tags", json={"tag_id": tag["id"]})
+        collection_only = client.post(
+            "/prompts", json={**sample_prompt_data, "title": "Collection only", "collection_id": collection_id}
+        ).json()
+
+        response = client.get(f"/prompts?tag_id={tag['id']}&collection_id={collection_id}")
+
+        data = response.json()
+        assert data["total"] == 1
+        assert data["prompts"][0]["id"] == in_both["id"]
+
+    def test_list_prompts_filter_by_unknown_tag_id_returns_empty_not_error(
+        self, client: TestClient, sample_prompt_data
+    ):
+        """An unmatched tag_id is not an error — same as an unmatched collection_id (US-6)."""
+        client.post("/prompts", json=sample_prompt_data)
+        response = client.get("/prompts?tag_id=nonexistent-tag-id")
+        assert response.status_code == 200
+        assert response.json() == {"prompts": [], "total": 0}
