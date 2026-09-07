@@ -536,3 +536,22 @@ def get_tag(tag_id: str):
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
     return tag
+
+
+@app.delete("/tags/{tag_id}", status_code=204)
+def delete_tag(tag_id: str):
+    """Soft-delete a tag.
+
+    Args:
+        tag_id: Path parameter; the id of the tag to delete.
+
+    Returns:
+        None. The response is an empty 204.
+
+    Raises:
+        HTTPException: 404 if no active tag has that id, including one that
+            has already been deleted.
+    """
+    if not storage.delete_tag(tag_id):
+        raise HTTPException(status_code=404, detail="Tag not found")
+    return None

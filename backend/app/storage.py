@@ -288,6 +288,22 @@ class Storage:
         """
         return [t for t in self._tags.values() if t.deleted_on is None]
 
+    def delete_tag(self, tag_id: str) -> bool:
+        """Soft-delete a tag by stamping its deleted_on field.
+
+        Args:
+            tag_id: The id of the tag to delete.
+
+        Returns:
+            True if an active tag was found and marked deleted; False if
+            there is no tag with that id or it was already deleted.
+        """
+        tag = self.get_tag(tag_id)
+        if tag is None:
+            return False
+        tag.deleted_on = get_current_time()
+        return True
+
     def find_tag_by_name(self, name: str) -> Optional[Tag]:
         """Look up an active tag by name, case-insensitively.
 
