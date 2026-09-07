@@ -756,6 +756,13 @@ class TestTags:
             client.post(f"/prompts/{prompt_id}/tags", json={"tag_id": tag["id"]})
         return tags
 
+    def _prompt_with_attached_tag(self, client: TestClient, sample_prompt_data, name: str = "security"):
+        """Create a prompt and a tag, attach the tag, and return (prompt, tag) as response bodies."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, name)
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        return prompt, tag
+
     def test_create_tag_returns_201_with_fields(self, client: TestClient):
         """POST /tags with a name creates a Tag with a server-generated id (US-1)."""
         response = client.post("/tags", json={"name": "security"})
@@ -1043,9 +1050,7 @@ class TestTags:
         assert response.json()["tag_ids"] == [tag["id"]]
 
     def test_detach_tag_removes_it_from_tag_ids(self, client: TestClient, sample_prompt_data):
-        prompt = client.post("/prompts", json=sample_prompt_data).json()
-        tag = self._create_tag(client, "security")
-        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        prompt, tag = self._prompt_with_attached_tag(client, sample_prompt_data)
 
         response = client.delete(f"/prompts/{prompt['id']}/tags/{tag['id']}")
 
@@ -1054,9 +1059,7 @@ class TestTags:
 
     def test_detach_tag_leaves_the_tag_resource_itself_unaffected(self, client: TestClient, sample_prompt_data):
         """Detaching removes the reference on the prompt only — the Tag itself still exists (US-5)."""
-        prompt = client.post("/prompts", json=sample_prompt_data).json()
-        tag = self._create_tag(client, "security")
-        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        prompt, tag = self._prompt_with_attached_tag(client, sample_prompt_data)
 
         detach_response = client.delete(f"/prompts/{prompt['id']}/tags/{tag['id']}")
         # Precondition: the detach must have actually happened, or "the tag still exists
@@ -1073,9 +1076,7 @@ class TestTags:
         assert response.json() == {"detail": "Prompt not found"}
 
     def test_detach_tag_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
-        prompt = client.post("/prompts", json=sample_prompt_data).json()
-        tag = self._create_tag(client, "security")
-        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        prompt, tag = self._prompt_with_attached_tag(client, sample_prompt_data)
         client.delete(f"/prompts/{prompt['id']}")
 
         response = client.delete(f"/prompts/{prompt['id']}/tags/{tag['id']}")
