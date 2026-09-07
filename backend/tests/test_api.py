@@ -745,6 +745,10 @@ class TestSoftDelete:
 class TestTags:
     """Tests for tag endpoints (specs/tagging-system.md)."""
 
+    def _create_tag(self, client: TestClient, name: str = "security"):
+        """Create a tag through the API and return the response body."""
+        return client.post("/tags", json={"name": name}).json()
+
     def test_create_tag_returns_201_with_fields(self, client: TestClient):
         """POST /tags with a name creates a Tag with a server-generated id (US-1)."""
         response = client.post("/tags", json={"name": "security"})
@@ -782,19 +786,19 @@ class TestTags:
 
     def test_create_tag_duplicate_name_returns_409(self, client: TestClient):
         """A second tag with the same (trimmed) name is rejected, not silently created (US-1)."""
-        client.post("/tags", json={"name": "security"})
+        self._create_tag(client, "security")
         response = client.post("/tags", json={"name": "security"})
         assert response.status_code == 409
         assert response.json() == {"detail": "Tag with this name already exists"}
 
     def test_create_tag_duplicate_name_case_insensitive_returns_409(self, client: TestClient):
         """Case differences don't create a second, distinct tag (US-1)."""
-        client.post("/tags", json={"name": "security"})
+        self._create_tag(client, "security")
         response = client.post("/tags", json={"name": "Security"})
         assert response.status_code == 409
 
     def test_create_tag_duplicate_check_trims_before_comparing(self, client: TestClient):
         """Uniqueness is checked on the trimmed name, not the raw input."""
-        client.post("/tags", json={"name": "security"})
+        self._create_tag(client, "security")
         response = client.post("/tags", json={"name": "  Security  "})
         assert response.status_code == 409
