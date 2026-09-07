@@ -740,3 +740,61 @@ class TestSoftDelete:
         response = client.post("/prompts", json={**sample_prompt_data, "deleted_on": "2026-01-01T00:00:00"})
         assert response.status_code == 201
         assert response.json()["deleted_on"] is None
+
+
+class TestTags:
+    """Tests for tag endpoints (specs/tagging-system.md)."""
+
+    def test_create_tag_returns_201_with_fields(self, client: TestClient):
+        """POST /tags with a name creates a Tag with a server-generated id (US-1)."""
+        response = client.post("/tags", json={"name": "security"})
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "security"
+        assert "id" in data
+        assert "created_at" in data
+        assert data["deleted_on"] is None
+
+    def test_create_tag_empty_name_returns_422(self, client: TestClient):
+        """An empty name is rejected by Pydantic's min_length=1, not a hand-written 400 (US-1)."""
+        response = client.post("/tags", json={"name": ""})
+        assert response.status_code == 422
+
+    def test_create_tag_name_too_long_returns_422(self, client: TestClient):
+        """A name over 32 characters is rejected by Pydantic's max_length=32 (US-1)."""
+        response = client.post("/tags", json={"name": "x" * 33})
+        assert response.status_code == 422
+
+    def test_create_tag_name_at_32_chars_is_accepted(self, client: TestClient):
+        response = client.post("/tags", json={"name": "x" * 32})
+        assert response.status_code == 201
+
+    def test_create_tag_trims_whitespace(self, client: TestClient):
+        """Leading/trailing whitespace is trimmed before storage (US-1)."""
+        response = client.post("/tags", json={"name": "  security  "})
+        assert response.status_code == 201
+        assert response.json()["name"] == "security"
+
+    def test_create_tag_whitespace_only_name_returns_422(self, client: TestClient):
+        """A whitespace-only name trims to empty and fails min_length=1, not silently succeeding."""
+        response = client.post("/tags", json={"name": "   "})
+        assert response.status_code == 422
+
+    def test_create_tag_duplicate_name_returns_409(self, client: TestClient):
+        """A second tag with the same (trimmed) name is rejected, not silently created (US-1)."""
+        client.post("/tags", json={"name": "security"})
+        response = client.post("/tags", json={"name": "security"})
+        assert response.status_code == 409
+        assert response.json() == {"detail": "Tag with this name already exists"}
+
+    def test_create_tag_duplicate_name_case_insensitive_returns_409(self, client: TestClient):
+        """Case differences don't create a second, distinct tag (US-1)."""
+        client.post("/tags", json={"name": "security"})
+        response = client.post("/tags", json={"name": "Security"})
+        assert response.status_code == 409
+
+    def test_create_tag_duplicate_check_trims_before_comparing(self, client: TestClient):
+        """Uniqueness is checked on the trimmed name, not the raw input."""
+        client.post("/tags", json={"name": "security"})
+        response = client.post("/tags", json={"name": "  Security  "})
+        assert response.status_code == 409
