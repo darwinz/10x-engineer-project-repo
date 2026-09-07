@@ -21,6 +21,7 @@ from app.models import (
     PromptVersionList,
     Tag,
     TagCreate,
+    TagList,
     get_current_time,
 )
 from app.storage import storage
@@ -497,3 +498,41 @@ def create_tag(tag_data: TagCreate):
 
     tag = Tag(**tag_data.model_dump())
     return storage.create_tag(tag)
+
+
+@app.get("/tags", response_model=TagList)
+def list_tags(search: Optional[str] = None):
+    """List active tags, oldest first, optionally filtered by name.
+
+    Args:
+        search: Query parameter; if given, only tags whose name contains
+            this text (case-insensitive) are returned.
+
+    Returns:
+        A TagList of the matching active tags, in creation order, and a
+        count. Not sorted by date, unlike GET /prompts.
+    """
+    tags = storage.get_all_tags()
+    if search:
+        search_lower = search.lower()
+        tags = [t for t in tags if search_lower in t.name.lower()]
+    return TagList(tags=tags, total=len(tags))
+
+
+@app.get("/tags/{tag_id}", response_model=Tag)
+def get_tag(tag_id: str):
+    """Return a single tag by id.
+
+    Args:
+        tag_id: Path parameter; the id of the tag to fetch.
+
+    Returns:
+        The matching Tag.
+
+    Raises:
+        HTTPException: 404 if no tag has that id or it has been soft-deleted.
+    """
+    tag = storage.get_tag(tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    return tag

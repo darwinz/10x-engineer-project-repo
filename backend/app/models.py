@@ -215,6 +215,17 @@ class Tag(TagCreate):
         from_attributes = True
 
 
+class TagList(BaseModel):
+    """Response body for GET /tags and GET /prompts/{id}/tags.
+
+    Attributes:
+        tags: The matching tags.
+        total: The number of tags in `tags`.
+    """
+    tags: List[Tag]
+    total: int
+
+
 # ============== Response Models ==============
 
 class PromptList(BaseModel):

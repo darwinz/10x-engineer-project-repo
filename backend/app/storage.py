@@ -262,6 +262,32 @@ class Storage:
         self._tags[tag.id] = tag
         return tag
 
+    def get_tag(self, tag_id: str, include_deleted: bool = False) -> Optional[Tag]:
+        """Look up a tag by id.
+
+        Args:
+            tag_id: The id of the tag.
+            include_deleted: If True, a soft-deleted tag is returned as
+                well. Defaults to False, which hides deleted tags.
+
+        Returns:
+            The stored Tag object itself (not a copy), or None if there is
+            no tag with that id or it is soft-deleted and include_deleted
+            is False.
+        """
+        tag = self._tags.get(tag_id)
+        if tag is None or (tag.deleted_on is not None and not include_deleted):
+            return None
+        return tag
+
+    def get_all_tags(self) -> List[Tag]:
+        """Return every tag that has not been soft-deleted, oldest first.
+
+        Returns:
+            A new list of the active Tag objects, in insertion order.
+        """
+        return [t for t in self._tags.values() if t.deleted_on is None]
+
     def find_tag_by_name(self, name: str) -> Optional[Tag]:
         """Look up an active tag by name, case-insensitively.
 
