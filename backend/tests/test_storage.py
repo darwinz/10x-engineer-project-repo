@@ -423,3 +423,22 @@ class TestTagOperations:
     def test_attach_tag_unknown_prompt_returns_none(self, store):
         """Not reachable via the API (which 404s first) — a direct contract of the storage method itself."""
         assert store.attach_tag("nonexistent-prompt", "tag-1") is None
+
+    def test_detach_tag_removes_from_prompt_tag_ids(self, store):
+        prompt = _prompt(tag_ids=["tag-1", "tag-2"])
+        store.create_prompt(prompt)
+        result = store.detach_tag(prompt.id, "tag-1")
+        assert result is prompt
+        assert prompt.tag_ids == ["tag-2"]
+
+    def test_detach_tag_not_present_is_a_no_op(self, store):
+        """Removing a tag_id that isn't there doesn't raise or change tag_ids — the caller checks first."""
+        prompt = _prompt(tag_ids=["tag-1"])
+        store.create_prompt(prompt)
+        result = store.detach_tag(prompt.id, "never-attached")
+        assert result is prompt
+        assert prompt.tag_ids == ["tag-1"]
+
+    def test_detach_tag_unknown_prompt_returns_none(self, store):
+        """Not reachable via the API (which 404s first) — a direct contract of the storage method itself."""
+        assert store.detach_tag("nonexistent-prompt", "tag-1") is None

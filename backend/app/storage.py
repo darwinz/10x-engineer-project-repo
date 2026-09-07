@@ -329,6 +329,27 @@ class Storage:
             prompt.tag_ids.append(tag_id)
         return prompt
 
+    def detach_tag(self, prompt_id: str, tag_id: str) -> Optional[Prompt]:
+        """Remove a tag from a prompt's tag_ids if it's there.
+
+        Whether tag_id was actually present is checked by the caller
+        (app/api.py) to decide between success and a 404 "not attached".
+
+        Args:
+            prompt_id: The id of the prompt to detach the tag from.
+            tag_id: The id of the tag to detach.
+
+        Returns:
+            The updated Prompt, or None if there is no active prompt with
+            that id.
+        """
+        prompt = self.get_prompt(prompt_id)
+        if prompt is None:
+            return None
+        if tag_id in prompt.tag_ids:
+            prompt.tag_ids.remove(tag_id)
+        return prompt
+
     def find_tag_by_name(self, name: str) -> Optional[Tag]:
         """Look up an active tag by name, case-insensitively.
 

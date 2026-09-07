@@ -352,6 +352,31 @@ def attach_tag_to_prompt(prompt_id: str, attach_data: PromptTagAttach):
     return storage.attach_tag(prompt_id, attach_data.tag_id)
 
 
+@app.delete("/prompts/{prompt_id}/tags/{tag_id}", response_model=Prompt)
+def detach_tag_from_prompt(prompt_id: str, tag_id: str):
+    """Remove a tag from a prompt without deleting the tag itself.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt to untag.
+        tag_id: Path parameter; the id of the tag to detach.
+
+    Returns:
+        The updated Prompt, with the tag removed from its tag_ids.
+
+    Raises:
+        HTTPException: 404 if no active prompt has that id; 404 if tag_id
+            is not currently in the prompt's tag_ids — whether because it
+            was never attached or because no such tag exists at all, one
+            check covers both.
+    """
+    prompt = _get_prompt_or_404(prompt_id)
+
+    if tag_id not in prompt.tag_ids:
+        raise HTTPException(status_code=404, detail="Tag not attached to prompt")
+
+    return storage.detach_tag(prompt_id, tag_id)
+
+
 # ============== Prompt Version Endpoints ==============
 
 @app.get("/prompts/{prompt_id}/versions", response_model=PromptVersionList)
