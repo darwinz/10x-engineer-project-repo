@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def generate_id() -> str:
@@ -171,6 +171,48 @@ class PromptVersionList(BaseModel):
     """
     versions: List[PromptVersion]
     total: int
+
+
+# ============== Tag Models ==============
+
+class TagCreate(BaseModel):
+    """Request body for POST /tags.
+
+    Attributes:
+        name: The tag's display name, 1-32 characters after trimming.
+            Whitespace is trimmed before validation.
+    """
+    name: str = Field(..., min_length=1, max_length=32)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        """Trim whitespace before the min_length/max_length checks run.
+
+        Runs as a "before" validator so `Field`'s length constraints see the
+        trimmed string, not the raw input — a value that's only whitespace
+        (e.g. "   ") becomes "" and correctly fails min_length=1 with a 422,
+        rather than passing length validation and being stored blank.
+        """
+        return value.strip() if isinstance(value, str) else value
+
+
+class Tag(TagCreate):
+    """A stored tag, and the response body for every tag endpoint.
+
+    Attributes:
+        id: Server-generated uuid4 string.
+        created_at: Naive UTC time the tag was created.
+        deleted_on: Naive UTC time the tag was soft-deleted, or None while
+            it is active. Never settable by clients.
+    """
+    id: str = Field(default_factory=generate_id)
+    created_at: datetime = Field(default_factory=get_current_time)
+    deleted_on: Optional[datetime] = None
+
+    class Config:
+        """Allow building a Tag from attribute access, not just a dict."""
+        from_attributes = True
 
 
 # ============== Response Models ==============

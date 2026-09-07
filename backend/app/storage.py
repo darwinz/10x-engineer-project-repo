@@ -7,7 +7,7 @@ In a production environment, this would be replaced with a database.
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from app.models import Collection, Prompt, PromptVersion, get_current_time
+from app.models import Collection, Prompt, PromptVersion, Tag, get_current_time
 
 
 class Storage:
@@ -19,10 +19,11 @@ class Storage:
     """
 
     def __init__(self):
-        """Initialize empty prompt, collection, and version stores."""
+        """Initialize empty prompt, collection, version, and tag stores."""
         self._prompts: Dict[str, Prompt] = {}
         self._collections: Dict[str, Collection] = {}
         self._versions: Dict[str, List[PromptVersion]] = {}
+        self._tags: Dict[str, Tag] = {}
 
     # ============== Prompt Operations ==============
 
@@ -245,16 +246,49 @@ class Storage:
             if p.collection_id == collection_id and p.deleted_on is None
         ]
 
+    # ============== Tag Operations ==============
+
+    def create_tag(self, tag: Tag) -> Tag:
+        """Store a new tag, keyed by its id.
+
+        Any existing tag with the same id is overwritten.
+
+        Args:
+            tag: The Tag object to store.
+
+        Returns:
+            The same Tag object that was passed in.
+        """
+        self._tags[tag.id] = tag
+        return tag
+
+    def find_tag_by_name(self, name: str) -> Optional[Tag]:
+        """Look up an active tag by name, case-insensitively.
+
+        Args:
+            name: The (already-trimmed) name to match.
+
+        Returns:
+            The first active Tag whose name matches case-insensitively, or
+            None if no active tag has that name.
+        """
+        name_lower = name.lower()
+        for tag in self._tags.values():
+            if tag.deleted_on is None and tag.name.lower() == name_lower:
+                return tag
+        return None
+
     # ============== Utility ==============
 
     def clear(self):
-        """Remove every prompt, collection, and version, active or soft-deleted.
+        """Remove every prompt, collection, version, and tag, active or soft-deleted.
 
         Intended for test isolation; there is no equivalent API endpoint.
         """
         self._prompts.clear()
         self._collections.clear()
         self._versions.clear()
+        self._tags.clear()
 
 
 # Global storage instance

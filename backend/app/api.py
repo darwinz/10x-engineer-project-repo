@@ -19,6 +19,8 @@ from app.models import (
     PromptUpdate,
     PromptVersion,
     PromptVersionList,
+    Tag,
+    TagCreate,
     get_current_time,
 )
 from app.storage import storage
@@ -471,3 +473,27 @@ def delete_collection(collection_id: str):
     if not storage.delete_collection(collection_id):
         raise HTTPException(status_code=404, detail="Collection not found")
     return None
+
+
+# ============== Tag Endpoints ==============
+
+@app.post("/tags", response_model=Tag, status_code=201)
+def create_tag(tag_data: TagCreate):
+    """Create a new tag.
+
+    Args:
+        tag_data: The (already-trimmed, by TagCreate's validator) name for
+            the new tag.
+
+    Returns:
+        The newly created Tag, with a server-generated id and timestamp.
+
+    Raises:
+        HTTPException: 409 if an active tag with the same name (case-
+            insensitive) already exists.
+    """
+    if storage.find_tag_by_name(tag_data.name):
+        raise HTTPException(status_code=409, detail="Tag with this name already exists")
+
+    tag = Tag(**tag_data.model_dump())
+    return storage.create_tag(tag)
