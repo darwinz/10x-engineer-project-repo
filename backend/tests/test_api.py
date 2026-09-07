@@ -849,3 +849,44 @@ class TestTags:
         response = client.get("/tags/nonexistent-id")
         assert response.status_code == 404
         assert response.json() == {"detail": "Tag not found"}
+
+    def test_delete_tag_returns_204(self, client: TestClient):
+        tag = self._create_tag(client, "security")
+        response = client.delete(f"/tags/{tag['id']}")
+        assert response.status_code == 204
+
+    def test_delete_tag_then_get_returns_404(self, client: TestClient):
+        """A deleted tag is a normal 404 to a direct lookup afterward (US-3)."""
+        tag = self._create_tag(client, "security")
+        client.delete(f"/tags/{tag['id']}")
+        response = client.get(f"/tags/{tag['id']}")
+        assert response.status_code == 404
+
+    def test_delete_tag_then_list_excludes_it(self, client: TestClient):
+        """A deleted tag no longer appears in GET /tags (US-3)."""
+        tag = self._create_tag(client, "security")
+        self._create_tag(client, "python")
+        client.delete(f"/tags/{tag['id']}")
+        names = [t["name"] for t in client.get("/tags").json()["tags"]]
+        assert names == ["python"]
+
+    def test_delete_tag_unknown_id_returns_404(self, client: TestClient):
+        response = client.delete("/tags/nonexistent-id")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Tag not found"}
+
+    def test_delete_tag_twice_returns_404(self, client: TestClient):
+        """A second delete on the same tag is 404, same as the prompt/collection pattern (US-3)."""
+        tag = self._create_tag(client, "security")
+        assert client.delete(f"/tags/{tag['id']}").status_code == 204
+        assert client.delete(f"/tags/{tag['id']}").status_code == 404
+
+    def test_create_tag_name_matching_soft_deleted_tag_succeeds(self, client: TestClient):
+        """Deleting a tag frees its name for reuse — uniqueness only considers active tags (US-1, US-3)."""
+        original = self._create_tag(client, "security")
+        client.delete(f"/tags/{original['id']}")
+
+        response = client.post("/tags", json={"name": "Security"})
+
+        assert response.status_code == 201
+        assert response.json()["id"] != original["id"]
