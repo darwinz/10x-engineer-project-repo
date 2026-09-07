@@ -99,7 +99,7 @@ Naming convention: `*Page` components are **containers** (own data-fetching and 
 | `LoadingSpinner` | presentational | Render a loading indicator, nothing else. | `label?: string` |
 | `ErrorBanner` | presentational | Render one error (network failure or an `ApiErrorDetail`) with an optional retry action. | `error: string`, `onRetry?: () => void` |
 | `EmptyState` | presentational | Render a "nothing here yet" block with an optional call-to-action. | `title: string`, `message: string`, `actionLabel?: string`, `onAction?: () => void` |
-| `DeleteConfirmDialog` | presentational | Ask the user to confirm a destructive action before it fires. | `isOpen: boolean`, `title: string`, `message: string`, `confirmLabel: string`, `onConfirm: () => void`, `onCancel: () => void` |
+| `DeleteConfirmDialog` | presentational | Ask the user to confirm a destructive action before it fires; stays open and shows `error` instead of closing if the confirmed action fails. | `isOpen: boolean`, `title: string`, `message: string`, `confirmLabel: string`, `error: string \| null`, `onConfirm: () => void`, `onCancel: () => void` |
 | `PromptForm` | presentational | Controlled form for `title`/`content`/`description`/`collection_id`; used by both prompt-create and prompt-edit — it never calls an endpoint itself. | `initialValues: { title: string; content: string; description: string; collection_id: string \| null }`, `collections: Collection[]`, `submitLabel: string`, `isSubmitting: boolean`, `submitError: string \| null`, `onSubmit: (values: PromptFormValues) => void`, `onCancel: () => void` |
 
 ### Prompt Dashboard (`/`)
@@ -165,6 +165,8 @@ Naming convention: `*Page` components are **containers** (own data-fetching and 
 
 **`PUT /prompts/{id}` is deliberately never called by this UI**, even though it's a real endpoint. `PATCH` covers every edit this form supports — including clearing `description` or `collection_id`, since the diffed payload can send an explicit `null` for a field the user emptied — without `PUT`'s requirement to resend every field or silently blank out anything the caller omits. There's no screen in this spec that needs a "replace everything, no partial option" guarantee `PATCH` doesn't already give.
 
+**Clearing a field sends an explicit `null`, not an empty string.** A cleared `description` textarea and a "No collection" dropdown selection both start as `""` in the DOM — before diffing against the loaded prompt, `usePrompt.ts`'s save function converts an empty `description` or `collection_id` to `null` prior to comparison and submission. This is the only way to produce `PromptPatch`'s "explicitly cleared" case rather than "field omitted, leave as-is." `title` and `content` are exempt from this conversion: the backend rejects `null` on either with a `400`, and the form's own `min_length=1` validation already turns an empty `title`/`content` into a client-side validation error before a request is ever sent.
+
 ---
 
 ## 4. State management approach
@@ -224,6 +226,10 @@ For each screen: what renders, and how you'd actually check it in a browser — 
 
 All three forms can also receive a `422` from the backend (e.g., a title over 200 characters slips past a client-side check due to a bug, or a race with another client). The `422` body is the `ValidationErrorDetail` shape in [Overview](#overview) — an array, not a string. `PromptForm`/`CollectionForm` must read `error.detail[].loc`/`.msg` and show the message next to the specific field named in `loc`, not just a generic banner; a `400` (e.g. "Collection not found" if a collection was deleted in another tab between opening the form and submitting) is the plain-string shape and renders as a single form-level error above the submit button. Verify by: temporarily lowering `PromptForm`'s client-side title max-length check below the server's 200 (or removing it entirely) in a local build, submitting a 201-character title, and confirming the exact field-level message from the `422` response appears under the Title input rather than a blank failure or a raw JSON dump.
 
+### Mutation failures (network-level, not validation)
+
+A `POST`/`PATCH`/`DELETE` can also fail because the backend is unreachable rather than because of a `422`/`400` — e.g. the process crashes mid-edit. For create/edit forms this renders no differently than a validation failure: `submitError` is set to a generic message ("Could not reach the server — try again.") and shown in the same slot a field-level or form-level `422`/`400` message would occupy, so the form doesn't need a second failure UI. For delete, this is why `DeleteConfirmDialog` (Section 2) carries an `error: string | null` prop: on a failed `DELETE` the dialog does not close — it stays open and renders that message below its confirm/cancel buttons, so the user isn't left unsure whether the delete actually happened. It closes only after a confirmed success. Verify by: stopping the backend, opening delete-confirmation on any prompt or collection, clicking confirm, and checking the dialog stays open with a visible error rather than silently closing or leaving the item in an ambiguous half-deleted state; restart the backend, click confirm again, confirm it now succeeds and the dialog closes.
+
 ---
 
 ## 6. Folder structure
@@ -270,8 +276,27 @@ frontend/src/
 │   ├── promptVersions.ts                  # listPromptVersions, getPromptVersion, restorePromptVersion
 │   └── collections.ts                     # listCollections, createCollection, deleteCollection
 ├── types.ts                                # Prompt, Collection, PromptVersion, *List, ApiErrorDetail, ValidationErrorDetail
+├── index.css                                # @tailwind base/components/utilities — see Section 7
 ├── App.tsx                                 # React Router route table
-└── main.tsx
+└── main.tsx                                 # imports index.css once
 ```
 
 `api/` and `types.ts` are the one deliberate exception to feature-grouping: request/response shapes and fetch functions are shared infrastructure every screen depends on, not something owned by any single one, so they live at the top level rather than being duplicated or arbitrarily assigned to whichever screen happened to need them first.
+
+---
+
+## 7. Styling
+
+**Decision: Tailwind CSS**, utility classes applied directly in each component's JSX — no CSS Modules, no styled-components, no separate per-component stylesheet.
+
+Reasoning:
+
+- **Consistent with the folder-structure principle in Section 6.** Keeping a class string on the element itself keeps a component's markup and its appearance in one file, rather than splitting every component across a `.tsx` and a co-located `.module.css` that have to be kept in sync.
+- **Sized to the app.** Four screens with a small, repeated set of visual patterns (cards, list rows, modals, form fields, banners) don't need a component-styling abstraction built for a much larger design system — the same "don't reach for infrastructure this app doesn't need" reasoning already applied to state management in Section 4.
+- **Composes cleanly with the shared components in Section 2.** `ErrorBanner`, `EmptyState`, `LoadingSpinner`, `DeleteConfirmDialog`, and both forms each own their utility classes internally; no component in the Section 2 inventory gains a styling-related prop as a result of this decision — appearance is internal to each component, not something a parent configures.
+
+Setup, at the root of `frontend/` (sibling to `package.json`, outside the `src/` tree shown in Section 6):
+
+- `tailwind.config.ts` — `content` globs pointing at `src/**/*.{ts,tsx}`.
+- `postcss.config.js` — `tailwindcss` and `autoprefixer`.
+- `src/index.css` — the three `@tailwind` directives (`base`, `components`, `utilities`), imported once in `main.tsx`.
