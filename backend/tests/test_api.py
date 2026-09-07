@@ -802,3 +802,50 @@ class TestTags:
         self._create_tag(client, "security")
         response = client.post("/tags", json={"name": "  Security  "})
         assert response.status_code == 409
+
+    def test_list_tags_empty(self, client: TestClient):
+        """A fresh backend has no tags — a routine state, not an error (US-2)."""
+        response = client.get("/tags")
+        assert response.status_code == 200
+        assert response.json() == {"tags": [], "total": 0}
+
+    def test_list_tags_returns_all_active(self, client: TestClient):
+        self._create_tag(client, "security")
+        self._create_tag(client, "python")
+        response = client.get("/tags")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 2
+        assert {t["name"] for t in data["tags"]} == {"security", "python"}
+
+    def test_list_tags_ordered_oldest_first(self, client: TestClient):
+        """GET /tags does not re-sort — creation order, like GET /collections (US-2)."""
+        self._create_tag(client, "first")
+        self._create_tag(client, "second")
+        self._create_tag(client, "third")
+        names = [t["name"] for t in client.get("/tags").json()["tags"]]
+        assert names == ["first", "second", "third"]
+
+    def test_list_tags_search_matches_substring_case_insensitive(self, client: TestClient):
+        self._create_tag(client, "security")
+        self._create_tag(client, "python")
+        response = client.get("/tags?search=SEC")
+        data = response.json()
+        assert data["total"] == 1
+        assert data["tags"][0]["name"] == "security"
+
+    def test_list_tags_search_no_match_returns_empty(self, client: TestClient):
+        self._create_tag(client, "security")
+        response = client.get("/tags?search=nonexistent")
+        assert response.json() == {"tags": [], "total": 0}
+
+    def test_get_tag_success(self, client: TestClient):
+        created = self._create_tag(client, "security")
+        response = client.get(f"/tags/{created['id']}")
+        assert response.status_code == 200
+        assert response.json() == created
+
+    def test_get_tag_not_found_returns_404(self, client: TestClient):
+        response = client.get("/tags/nonexistent-id")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Tag not found"}
