@@ -17,7 +17,8 @@ The backend is a FastAPI service with full CRUD for prompts and collections, par
 - **Prompt management** — create, read, update (full or partial), and delete prompt templates
 - **Variable templating** — reference `{{input}}`-style placeholders in prompt content
 - **Collections** — group related prompts under a named, searchable label
-- **Search & filter** — list prompts by collection or free-text search across title and description
+- **Tags** — attach any number of reusable, cross-cutting labels to a prompt, independent of its collection
+- **Search & filter** — list prompts by collection, tag, or free-text search across title and description
 - **Partial updates** — `PATCH` changes only the fields you send; `PUT` replaces the whole record
 - **Version history** — every meaningful edit to a prompt's title, content, or description is saved automatically; browse past versions or restore one
 - **Soft deletes** — deleting a prompt or collection stamps `deleted_on` instead of destroying data; deleting a collection cascades to its prompts
@@ -96,7 +97,7 @@ All endpoints accept and return JSON, and require no authentication (see [Known 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Health check |
-| `GET` | `/prompts` | List prompts (filter by `collection_id`, `search`) |
+| `GET` | `/prompts` | List prompts (filter by `collection_id`, `tag_id`, `search`) |
 | `GET` | `/prompts/{id}` | Get one prompt |
 | `POST` | `/prompts` | Create a prompt |
 | `PUT` | `/prompts/{id}` | Full replace |
@@ -105,6 +106,13 @@ All endpoints accept and return JSON, and require no authentication (see [Known 
 | `GET` | `/prompts/{id}/versions` | List a prompt's versions, newest first |
 | `GET` | `/prompts/{id}/versions/{version_number}` | Get one version |
 | `POST` | `/prompts/{id}/versions/{version_number}/restore` | Restore a past version |
+| `GET` | `/prompts/{id}/tags` | Full tag details for one prompt |
+| `POST` | `/prompts/{id}/tags` | Attach an existing tag to a prompt |
+| `DELETE` | `/prompts/{id}/tags/{tag_id}` | Detach a tag from a prompt |
+| `POST` | `/tags` | Create a tag |
+| `GET` | `/tags` | List tags |
+| `GET` | `/tags/{id}` | Get one tag |
+| `DELETE` | `/tags/{id}` | Soft-delete a tag (detaches it from every prompt) |
 | `GET` | `/collections` | List collections |
 | `GET` | `/collections/{id}` | Get one collection |
 | `POST` | `/collections` | Create a collection |

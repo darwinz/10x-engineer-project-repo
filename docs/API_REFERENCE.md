@@ -51,8 +51,9 @@ Request validation failures (422), raised by FastAPI/Pydantic before a route han
 | `200` | OK | Successful `GET`, `PUT`, or `PATCH` |
 | `201` | Created | Successful `POST` |
 | `204` | No Content | Successful `DELETE` — empty body |
-| `400` | Bad Request | A referenced `collection_id` does not belong to an active collection, or a `PATCH` tries to null out a required field (`title`/`content`) |
+| `400` | Bad Request | A referenced `collection_id` does not belong to an active collection, a `PATCH` tries to null out a required field (`title`/`content`), or a prompt is already at the 10-tag cap |
 | `404` | Not Found | No active record exists with the given id — including one that was already soft-deleted |
+| `409` | Conflict | `POST /tags` with a name that matches an active tag's name, case-insensitively |
 | `422` | Unprocessable Entity | The request body fails Pydantic validation (missing/wrong-typed/out-of-range field) |
 
 ---
@@ -90,13 +91,15 @@ List active prompts, newest first (sorted by `created_at` descending).
 | Name | Type | Required | Description |
 |---|---|---|---|
 | `collection_id` | string | no | Only return prompts with this exact `collection_id` |
-| `search` | string | no | Case-insensitive substring match against `title` and `description`. Applied after `collection_id` filtering |
+| `tag_id` | string | no | Only return prompts whose `tag_ids` contains this id. Combines with `collection_id` via AND. An id matching no tag is not an error — it just matches no prompts |
+| `search` | string | no | Case-insensitive substring match against `title` and `description`. Applied after `collection_id`/`tag_id` filtering |
 
 **Request**
 
 ```bash
 curl http://localhost:8000/prompts
 curl "http://localhost:8000/prompts?collection_id=f54e432e-405a-4739-9911-b89a993f1f95"
+curl "http://localhost:8000/prompts?tag_id=9c2e1234-..."
 curl "http://localhost:8000/prompts?search=security"
 ```
 
@@ -118,7 +121,8 @@ const { prompts, total } = await res.json();
       "id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
       "created_at": "2026-08-24T05:42:37.701035",
       "updated_at": "2026-08-24T05:42:37.701038",
-      "deleted_on": null
+      "deleted_on": null,
+      "tag_ids": []
     }
   ],
   "total": 1
@@ -146,7 +150,8 @@ curl http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6
   "id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
   "created_at": "2026-08-24T05:42:37.701035",
   "updated_at": "2026-08-24T05:42:37.701038",
-  "deleted_on": null
+  "deleted_on": null,
+  "tag_ids": []
 }
 ```
 
@@ -210,7 +215,8 @@ const res = await fetch("http://localhost:8000/prompts", {
   "id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
   "created_at": "2026-08-24T05:42:37.701035",
   "updated_at": "2026-08-24T05:42:37.701038",
-  "deleted_on": null
+  "deleted_on": null,
+  "tag_ids": []
 }
 ```
 
@@ -279,9 +285,12 @@ curl -X PUT http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6 \
   "id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
   "created_at": "2026-08-24T05:42:37.701035",
   "updated_at": "2026-08-24T05:43:00.871126",
-  "deleted_on": null
+  "deleted_on": null,
+  "tag_ids": []
 }
 ```
+
+`tag_ids` is preserved across a `PUT` — it is not part of the request body shape and cannot be set or cleared this way; only [`POST`/`DELETE /prompts/{id}/tags`](#post-promptsidtags) mutate it.
 
 **Errors** — `404` if the id doesn't exist or is deleted; `400` for an unknown `collection_id`; `422` for a missing/invalid field (same formats as `POST`).
 
@@ -325,7 +334,8 @@ const res = await fetch(`http://localhost:8000/prompts/${id}`, {
   "id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
   "created_at": "2026-08-24T05:42:37.701035",
   "updated_at": "2026-08-24T05:42:53.688817",
-  "deleted_on": null
+  "deleted_on": null,
+  "tag_ids": []
 }
 ```
 
@@ -348,9 +358,12 @@ curl -X PATCH http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6
   "id": "80184e58-ec8f-43de-bd66-f35c1e3bd7f6",
   "created_at": "2026-08-24T05:42:37.701035",
   "updated_at": "2026-08-24T05:42:53.697170",
-  "deleted_on": null
+  "deleted_on": null,
+  "tag_ids": []
 }
 ```
+
+`tag_ids` in the request body is silently ignored (Pydantic drops unknown fields) — it isn't part of `PromptPatch`, so a `PATCH` can't set or clear it either.
 
 **Error — nulling a required field**
 
@@ -455,7 +468,7 @@ curl http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/versions
 
 ### `POST /prompts/{id}/versions/{version_number}/restore`
 
-Make a past version the prompt's current content again. `collection_id` is untouched. This is never a no-op — even restoring the prompt's own current version appends a new version.
+Make a past version the prompt's current content again. `collection_id` and `tag_ids` are both untouched — restoring content never moves a prompt between collections or changes its tags. This is never a no-op — even restoring the prompt's own current version appends a new version.
 
 **Request**
 
@@ -470,6 +483,137 @@ curl -X POST http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/
 - `404` — prompt unknown/soft-deleted: `{"detail": "Prompt not found"}`
 - `404` — no such version on this prompt: `{"detail": "Version not found"}`
 - `422` — `version_number` isn't an integer
+
+---
+
+## Tags
+
+Tags are reusable, many-to-many labels — a prompt can carry any number of them, independent of its (single, optional) collection. See [`specs/tagging-system.md`](../specs/tagging-system.md) for the full design.
+
+### `POST /tags`
+
+Create a tag. Name is trimmed before validation and storage; uniqueness is case-insensitive among active tags only (a name matching a soft-deleted tag's name is fine).
+
+**Body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string | yes | 1–32 characters after trimming |
+
+**Request**
+
+```bash
+curl -X POST http://localhost:8000/tags \
+  -H 'Content-Type: application/json' -d '{"name": "security"}'
+```
+
+**Response** — `201`
+
+```json
+{ "id": "9c2e1234-...", "name": "security", "created_at": "2026-08-24T06:00:00.000000", "deleted_on": null }
+```
+
+**Errors**
+
+- `422` — `name` empty or over 32 characters (Pydantic field validation)
+- `409` — an active tag with the same name already exists (case-insensitive): `{"detail": "Tag with this name already exists"}`
+
+### `GET /tags`
+
+List active tags, oldest first (creation order — same as `GET /collections`, unlike `GET /prompts`).
+
+**Query parameters**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `search` | string | no | Case-insensitive substring match against `name` |
+
+**Request**
+
+```bash
+curl http://localhost:8000/tags
+curl "http://localhost:8000/tags?search=sec"
+```
+
+**Response** — `200`
+
+```json
+{ "tags": [{ "id": "9c2e1234-...", "name": "security", "created_at": "2026-08-24T06:00:00.000000", "deleted_on": null }], "total": 1 }
+```
+
+### `GET /tags/{id}`
+
+```bash
+curl http://localhost:8000/tags/9c2e1234-...
+```
+
+**Response** — `200`, a single `Tag`. **Error** — `404`: `{"detail": "Tag not found"}`
+
+### `DELETE /tags/{id}`
+
+Soft-delete a tag and detach it from every prompt that had it (their `tag_ids` loses this entry; the prompts themselves are untouched). No response body.
+
+```bash
+curl -X DELETE http://localhost:8000/tags/9c2e1234-...
+```
+
+**Response** — `204`. **Error** — `404` (unknown or already deleted): `{"detail": "Tag not found"}`
+
+### `GET /prompts/{id}/tags`
+
+Full `Tag` objects for a prompt — not just the ids in its `tag_ids`.
+
+```bash
+curl http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/tags
+```
+
+**Response** — `200`
+
+```json
+{ "tags": [{ "id": "9c2e1234-...", "name": "security", "created_at": "2026-08-24T06:00:00.000000", "deleted_on": null }], "total": 1 }
+```
+
+A prompt with no tags returns `{"tags": [], "total": 0}` — **not** a `404`. **Error** — `404` (unknown/soft-deleted prompt): `{"detail": "Prompt not found"}`
+
+### `POST /prompts/{id}/tags`
+
+Attach an existing tag to a prompt. Idempotent — attaching a tag already on the prompt returns `200` unchanged, not an error.
+
+**Body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `tag_id` | string | yes | Must reference an existing, active tag |
+
+**Request**
+
+```bash
+curl -X POST http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/tags \
+  -H 'Content-Type: application/json' -d '{"tag_id": "9c2e1234-..."}'
+```
+
+**Response** — `200`, the updated `Prompt` with the tag in `tag_ids`.
+
+**Errors** (checked in this order)
+
+- `404` — prompt unknown/soft-deleted: `{"detail": "Prompt not found"}`
+- `404` — tag unknown/soft-deleted: `{"detail": "Tag not found"}`
+- `400` — the prompt already has 10 tags and this would add a genuinely new (11th) one: `{"detail": "A prompt cannot have more than 10 tags"}`. Re-attaching one of the existing 10 is never blocked by the cap.
+
+### `DELETE /prompts/{id}/tags/{tag_id}`
+
+Detach a tag from a prompt. The `Tag` resource itself is unaffected.
+
+```bash
+curl -X DELETE http://localhost:8000/prompts/80184e58-ec8f-43de-bd66-f35c1e3bd7f6/tags/9c2e1234-...
+```
+
+**Response** — `200`, the updated `Prompt` with the tag removed from `tag_ids`.
+
+**Errors** (checked in this order)
+
+- `404` — prompt unknown/soft-deleted: `{"detail": "Prompt not found"}`
+- `404` — `tag_id` not currently in the prompt's `tag_ids` — whether it was never attached or doesn't exist at all, one check covers both: `{"detail": "Tag not attached to prompt"}`
 
 ---
 
@@ -625,7 +769,7 @@ curl "http://localhost:8000/prompts?collection_id=f54e432e-405a-4739-9911-b89a99
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Health check |
-| `GET` | `/prompts` | List prompts (filter by `collection_id`, `search`) |
+| `GET` | `/prompts` | List prompts (filter by `collection_id`, `tag_id`, `search`) |
 | `GET` | `/prompts/{id}` | Get one prompt |
 | `POST` | `/prompts` | Create a prompt |
 | `PUT` | `/prompts/{id}` | Full replace |
@@ -634,6 +778,13 @@ curl "http://localhost:8000/prompts?collection_id=f54e432e-405a-4739-9911-b89a99
 | `GET` | `/prompts/{id}/versions` | List a prompt's versions, newest first |
 | `GET` | `/prompts/{id}/versions/{version_number}` | Get one version |
 | `POST` | `/prompts/{id}/versions/{version_number}/restore` | Restore a past version |
+| `GET` | `/prompts/{id}/tags` | Full tag details for one prompt |
+| `POST` | `/prompts/{id}/tags` | Attach an existing tag to a prompt |
+| `DELETE` | `/prompts/{id}/tags/{tag_id}` | Detach a tag from a prompt |
+| `POST` | `/tags` | Create a tag |
+| `GET` | `/tags` | List tags (filter by `search`) |
+| `GET` | `/tags/{id}` | Get one tag |
+| `DELETE` | `/tags/{id}` | Soft-delete a tag (detaches it from every prompt) |
 | `GET` | `/collections` | List collections |
 | `GET` | `/collections/{id}` | Get one collection |
 | `POST` | `/collections` | Create a collection |

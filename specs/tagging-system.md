@@ -1,6 +1,6 @@
 # Spec: Tagging System
 
-Status: Draft — planned for a future module. Not yet implemented.
+Status: Implemented (Module 4, `Week4` branch), built via TDD. See `docs/API_REFERENCE.md` for the live endpoint reference.
 
 ## Overview and goals
 
