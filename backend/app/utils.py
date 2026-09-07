@@ -34,6 +34,20 @@ def filter_prompts_by_collection(prompts: List[Prompt], collection_id: str) -> L
     return [p for p in prompts if p.collection_id == collection_id]
 
 
+def filter_prompts_by_tag(prompts: List[Prompt], tag_id: str) -> List[Prompt]:
+    """Return only the prompts that have a given tag attached.
+
+    Args:
+        prompts: The prompts to filter. The list is not modified.
+        tag_id: The tag id to look for in each prompt's `tag_ids`.
+
+    Returns:
+        A new list containing the Prompt objects whose `tag_ids` contains
+        `tag_id`. Empty if none match.
+    """
+    return [p for p in prompts if tag_id in p.tag_ids]
+
+
 def search_prompts(prompts: List[Prompt], query: str) -> List[Prompt]:
     """Return the prompts whose title or description contain a query string.
 

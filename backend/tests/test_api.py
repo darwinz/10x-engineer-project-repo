@@ -1169,12 +1169,14 @@ class TestTags:
         client.post(f"/prompts/{in_both['id']}/tags", json={"tag_id": tag["id"]})
         tag_only = client.post("/prompts", json={**sample_prompt_data, "title": "Tag only"}).json()
         client.post(f"/prompts/{tag_only['id']}/tags", json={"tag_id": tag["id"]})
-        collection_only = client.post(
+        client.post(
             "/prompts", json={**sample_prompt_data, "title": "Collection only", "collection_id": collection_id}
-        ).json()
+        )
 
         response = client.get(f"/prompts?tag_id={tag['id']}&collection_id={collection_id}")
 
+        # Only the prompt matching BOTH filters comes back — neither "tag only" nor
+        # "collection only" is enough on its own, proving this is an AND, not an OR.
         data = response.json()
         assert data["total"] == 1
         assert data["prompts"][0]["id"] == in_both["id"]

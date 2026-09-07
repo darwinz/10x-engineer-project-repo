@@ -26,7 +26,7 @@ from app.models import (
     get_current_time,
 )
 from app.storage import storage
-from app.utils import filter_prompts_by_collection, search_prompts, sort_prompts_by_date
+from app.utils import filter_prompts_by_collection, filter_prompts_by_tag, search_prompts, sort_prompts_by_date
 
 app = FastAPI(
     title="PromptLab API",
@@ -112,6 +112,7 @@ def health_check():
 @app.get("/prompts", response_model=PromptList)
 def list_prompts(
     collection_id: Optional[str] = None,
+    tag_id: Optional[str] = None,
     search: Optional[str] = None
 ):
     """List active prompts, optionally filtered, newest first.
@@ -119,9 +120,13 @@ def list_prompts(
     Args:
         collection_id: Query parameter; if given, only prompts with this
             exact `collection_id` are returned.
+        tag_id: Query parameter; if given, only prompts whose `tag_ids`
+            contains this id are returned. Combines with collection_id via
+            AND. A tag_id matching no tag is not an error — it just
+            matches no prompts, same as an unmatched collection_id.
         search: Query parameter; if given, only prompts whose title or
             description contain this text (case-insensitive) are returned.
-            Applied after `collection_id` filtering.
+            Applied after collection_id/tag_id filtering.
 
     Returns:
         A PromptList of the matching active prompts, sorted by
@@ -132,6 +137,10 @@ def list_prompts(
     # Filter by collection if specified
     if collection_id:
         prompts = filter_prompts_by_collection(prompts, collection_id)
+
+    # Filter by tag if specified
+    if tag_id:
+        prompts = filter_prompts_by_tag(prompts, tag_id)
 
     # Search if query provided
     if search:
@@ -320,6 +329,26 @@ def delete_prompt(prompt_id: str):
 
 
 # ============== Prompt Tag Endpoints ==============
+
+@app.get("/prompts/{prompt_id}/tags", response_model=TagList)
+def get_prompt_tags(prompt_id: str):
+    """Return the full Tag objects attached to a prompt.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt.
+
+    Returns:
+        A TagList of the prompt's tags and a count. A prompt with no tags
+        returns an empty list, not a 404.
+
+    Raises:
+        HTTPException: 404 if no prompt has that id or it has been
+            soft-deleted.
+    """
+    prompt = _get_prompt_or_404(prompt_id)
+    tags = [storage.get_tag(tag_id) for tag_id in prompt.tag_ids]
+    return TagList(tags=tags, total=len(tags))
+
 
 @app.post("/prompts/{prompt_id}/tags", response_model=Prompt)
 def attach_tag_to_prompt(prompt_id: str, attach_data: PromptTagAttach):

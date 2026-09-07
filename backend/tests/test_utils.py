@@ -6,6 +6,7 @@ from app.models import Prompt
 from app.utils import (
     extract_variables,
     filter_prompts_by_collection,
+    filter_prompts_by_tag,
     search_prompts,
     sort_prompts_by_date,
     validate_prompt_content,
@@ -73,6 +74,35 @@ class TestFilterPromptsByCollection:
     def test_does_not_mutate_input(self):
         prompts = [_prompt("Match", collection_id="c1"), _prompt("Other", collection_id="c2")]
         filter_prompts_by_collection(prompts, "c1")
+        assert len(prompts) == 2
+
+
+class TestFilterPromptsByTag:
+    """Unit tests for filter_prompts_by_tag in isolation from the API."""
+
+    def test_returns_only_prompts_with_the_tag(self):
+        matching = _prompt("Match", tag_ids=["t1"])
+        other = _prompt("Other", tag_ids=["t2"])
+        assert filter_prompts_by_tag([matching, other], "t1") == [matching]
+
+    def test_prompt_with_multiple_tags_matches_any_of_them(self):
+        prompt = _prompt("Multi", tag_ids=["t1", "t2"])
+        assert filter_prompts_by_tag([prompt], "t2") == [prompt]
+
+    def test_prompt_with_no_tags_never_matches(self):
+        untagged = _prompt("Untagged")
+        assert filter_prompts_by_tag([untagged], "t1") == []
+
+    def test_no_matches_returns_empty_list(self):
+        other = _prompt("Other", tag_ids=["t2"])
+        assert filter_prompts_by_tag([other], "t1") == []
+
+    def test_empty_input_returns_empty_list(self):
+        assert filter_prompts_by_tag([], "t1") == []
+
+    def test_does_not_mutate_input(self):
+        prompts = [_prompt("Match", tag_ids=["t1"]), _prompt("Other", tag_ids=["t2"])]
+        filter_prompts_by_tag(prompts, "t1")
         assert len(prompts) == 2
 
 
