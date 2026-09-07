@@ -1041,3 +1041,66 @@ class TestTags:
         response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
 
         assert response.json()["tag_ids"] == [tag["id"]]
+
+    def test_detach_tag_removes_it_from_tag_ids(self, client: TestClient, sample_prompt_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        response = client.delete(f"/prompts/{prompt['id']}/tags/{tag['id']}")
+
+        assert response.status_code == 200
+        assert response.json()["tag_ids"] == []
+
+    def test_detach_tag_leaves_the_tag_resource_itself_unaffected(self, client: TestClient, sample_prompt_data):
+        """Detaching removes the reference on the prompt only — the Tag itself still exists (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        detach_response = client.delete(f"/prompts/{prompt['id']}/tags/{tag['id']}")
+        # Precondition: the detach must have actually happened, or "the tag still exists
+        # afterward" would be trivially true regardless of whether detach does anything.
+        assert detach_response.status_code == 200
+        assert detach_response.json()["tag_ids"] == []
+
+        assert client.get(f"/tags/{tag['id']}").status_code == 200
+
+    def test_detach_tag_unknown_prompt_returns_404_prompt_not_found(self, client: TestClient):
+        tag = self._create_tag(client, "security")
+        response = client.delete(f"/prompts/nonexistent-id/tags/{tag['id']}")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_detach_tag_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        client.delete(f"/prompts/{prompt['id']}")
+
+        response = client.delete(f"/prompts/{prompt['id']}/tags/{tag['id']}")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_detach_tag_never_attached_returns_404_not_attached(self, client: TestClient, sample_prompt_data):
+        """A tag that exists but was never put on this prompt is 404 'Tag not attached to prompt' (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+
+        response = client.delete(f"/prompts/{prompt['id']}/tags/{tag['id']}")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Tag not attached to prompt"}
+
+    def test_detach_nonexistent_tag_id_returns_404_not_attached(self, client: TestClient, sample_prompt_data):
+        """A tag_id that doesn't exist at all is the same 404 as one that exists but isn't attached (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        response = client.delete(f"/prompts/{prompt['id']}/tags/nonexistent-tag-id")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Tag not attached to prompt"}
+
+    def test_detach_tag_checks_prompt_before_attachment(self, client: TestClient):
+        """When both the prompt and the attachment are bad, the prompt check runs first (US-5)."""
+        response = client.delete("/prompts/nonexistent-prompt/tags/nonexistent-tag")
+        assert response.json() == {"detail": "Prompt not found"}
