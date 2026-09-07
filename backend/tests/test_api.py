@@ -890,3 +890,144 @@ class TestTags:
 
         assert response.status_code == 201
         assert response.json()["id"] != original["id"]
+
+    def test_new_prompt_has_empty_tag_ids_by_default(self, client: TestClient, sample_prompt_data):
+        response = client.post("/prompts", json=sample_prompt_data)
+        assert response.json()["tag_ids"] == []
+
+    def test_create_prompt_ignores_tag_ids_in_body(self, client: TestClient, sample_prompt_data):
+        """tag_ids can't be set via POST /prompts — only the /tags sub-resource endpoints mutate it."""
+        response = client.post("/prompts", json={**sample_prompt_data, "tag_ids": ["forged-id"]})
+        assert response.status_code == 201
+        assert response.json()["tag_ids"] == []
+
+    def test_attach_tag_returns_200_with_updated_tag_ids(self, client: TestClient, sample_prompt_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        assert response.status_code == 200
+        assert response.json()["tag_ids"] == [tag["id"]]
+
+    def test_attach_tag_is_idempotent(self, client: TestClient, sample_prompt_data):
+        """Attaching an already-attached tag succeeds silently — no duplicate, no error (US-4)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        assert response.status_code == 200
+        assert response.json()["tag_ids"] == [tag["id"]]
+
+    def test_attach_tag_unknown_prompt_returns_404_prompt_not_found(self, client: TestClient):
+        tag = self._create_tag(client, "security")
+        response = client.post("/prompts/nonexistent-id/tags", json={"tag_id": tag["id"]})
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_attach_tag_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.delete(f"/prompts/{prompt['id']}")
+        tag = self._create_tag(client, "security")
+
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_attach_unknown_tag_returns_404_tag_not_found(self, client: TestClient, sample_prompt_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": "nonexistent-id"})
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Tag not found"}
+
+    def test_attach_deleted_tag_returns_404(self, client: TestClient, sample_prompt_data):
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.delete(f"/tags/{tag['id']}")
+
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Tag not found"}
+
+    def test_attach_tag_checks_prompt_before_tag(self, client: TestClient):
+        """When both ids are bad, the prompt check runs first — spec's fixed check order (US-4)."""
+        response = client.post("/prompts/nonexistent-prompt/tags", json={"tag_id": "nonexistent-tag"})
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_attach_tag_empty_tag_id_returns_422(self, client: TestClient, sample_prompt_data):
+        """An empty tag_id is a malformed request (422), not a 404 'Tag not found'."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": ""})
+        assert response.status_code == 422
+
+    def test_attach_11th_distinct_tag_returns_400(self, client: TestClient, sample_prompt_data):
+        """A prompt already at 10 tags rejects a genuinely new 11th (US-4)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        for i in range(10):
+            tag = self._create_tag(client, f"tag-{i}")
+            client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+        eleventh = self._create_tag(client, "one-too-many")
+
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": eleventh["id"]})
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "A prompt cannot have more than 10 tags"}
+
+    def test_attach_tag_at_cap_reattaching_existing_tag_still_succeeds(self, client: TestClient, sample_prompt_data):
+        """Idempotency beats the cap: re-attaching one of the 10 already-there tags is never blocked (US-4)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        first_tag = None
+        for i in range(10):
+            tag = self._create_tag(client, f"tag-{i}")
+            if i == 0:
+                first_tag = tag
+            client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        response = client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": first_tag["id"]})
+
+        assert response.status_code == 200
+        assert len(response.json()["tag_ids"]) == 10
+
+    def test_delete_tag_detaches_it_from_every_prompt_that_had_it(self, client: TestClient, sample_prompt_data):
+        """Deleting a tag removes it from tag_ids everywhere it was attached, deletes nothing else (US-3)."""
+        tag = self._create_tag(client, "security")
+        prompt_a = client.post("/prompts", json=sample_prompt_data).json()
+        prompt_b = client.post("/prompts", json={**sample_prompt_data, "title": "Other"}).json()
+        attach_a = client.post(f"/prompts/{prompt_a['id']}/tags", json={"tag_id": tag["id"]})
+        attach_b = client.post(f"/prompts/{prompt_b['id']}/tags", json={"tag_id": tag["id"]})
+        # Precondition: both attaches must have actually worked, or the "detaches" assertions
+        # below would trivially pass even if the delete cascade did nothing at all.
+        assert attach_a.status_code == 200 and attach_a.json()["tag_ids"] == [tag["id"]]
+        assert attach_b.status_code == 200 and attach_b.json()["tag_ids"] == [tag["id"]]
+
+        client.delete(f"/tags/{tag['id']}")
+
+        assert client.get(f"/prompts/{prompt_a['id']}").json()["tag_ids"] == []
+        assert client.get(f"/prompts/{prompt_b['id']}").json()["tag_ids"] == []
+        # the prompts themselves are untouched, not deleted
+        assert client.get(f"/prompts/{prompt_a['id']}").status_code == 200
+        assert client.get(f"/prompts/{prompt_b['id']}").status_code == 200
+
+    def test_patch_prompt_does_not_clear_tag_ids(self, client: TestClient, sample_prompt_data):
+        """PATCH builds a replacement Prompt internally — it must carry tag_ids forward, not default to []."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        response = client.patch(f"/prompts/{prompt['id']}", json={"title": "Renamed"})
+
+        assert response.json()["tag_ids"] == [tag["id"]]
+
+    def test_put_prompt_does_not_clear_tag_ids(self, client: TestClient, sample_prompt_data):
+        """PUT builds a replacement Prompt internally — it must carry tag_ids forward too."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        response = client.put(f"/prompts/{prompt['id']}", json=sample_prompt_data)
+
+        assert response.json()["tag_ids"] == [tag["id"]]
