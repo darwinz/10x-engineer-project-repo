@@ -91,11 +91,16 @@ class Prompt(PromptBase):
             created_at until then.
         deleted_on: Naive UTC time the prompt was soft-deleted, or None
             while it is active. Never settable by clients.
+        tag_ids: Ids of the tags attached to this prompt. Managed only via
+            POST/DELETE /prompts/{id}/tags — a value sent for this field in
+            a POST/PUT/PATCH /prompts body is silently ignored, since it
+            isn't declared on PromptBase.
     """
     id: str = Field(default_factory=generate_id)
     created_at: datetime = Field(default_factory=get_current_time)
     updated_at: datetime = Field(default_factory=get_current_time)
     deleted_on: Optional[datetime] = None
+    tag_ids: List[str] = Field(default_factory=list)
 
     class Config:
         """Allow building a Prompt from attribute access, not just a dict."""
@@ -224,6 +229,15 @@ class TagList(BaseModel):
     """
     tags: List[Tag]
     total: int
+
+
+class PromptTagAttach(BaseModel):
+    """Request body for POST /prompts/{prompt_id}/tags.
+
+    Attributes:
+        tag_id: The id of an existing, active tag to attach to the prompt.
+    """
+    tag_id: str = Field(..., min_length=1)
 
 
 # ============== Response Models ==============

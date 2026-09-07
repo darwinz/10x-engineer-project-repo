@@ -16,6 +16,7 @@ from app.models import (
     PromptCreate,
     PromptList,
     PromptPatch,
+    PromptTagAttach,
     PromptUpdate,
     PromptVersion,
     PromptVersionList,
@@ -226,7 +227,8 @@ def update_prompt(prompt_id: str, prompt_data: PromptUpdate):
         description=prompt_data.description,
         collection_id=prompt_data.collection_id,
         created_at=existing.created_at,
-        updated_at=get_current_time()
+        updated_at=get_current_time(),
+        tag_ids=existing.tag_ids,
     )
 
     _snapshot_version_if_changed(
@@ -287,7 +289,8 @@ def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
         description=new_description,
         collection_id=updates.get("collection_id", existing.collection_id),
         created_at=existing.created_at,
-        updated_at=get_current_time()
+        updated_at=get_current_time(),
+        tag_ids=existing.tag_ids,
     )
 
     _snapshot_version_if_changed(
@@ -314,6 +317,41 @@ def delete_prompt(prompt_id: str):
     if not storage.delete_prompt(prompt_id):
         raise HTTPException(status_code=404, detail="Prompt not found")
     return None
+
+
+# ============== Prompt Tag Endpoints ==============
+
+@app.post("/prompts/{prompt_id}/tags", response_model=Prompt)
+def attach_tag_to_prompt(prompt_id: str, attach_data: PromptTagAttach):
+    """Attach an existing tag to a prompt.
+
+    Idempotent: attaching a tag the prompt already has succeeds and returns
+    the prompt unchanged, rather than erroring or duplicating the entry.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt to tag.
+        attach_data: The id of the tag to attach.
+
+    Returns:
+        The updated Prompt, with the tag in its tag_ids.
+
+    Raises:
+        HTTPException: 404 if no active prompt has that id; 404 if no
+            active tag has the given id; 400 if the prompt is already at
+            the 10-tag cap and this would add a genuinely new tag.
+    """
+    prompt = storage.get_prompt(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    tag = storage.get_tag(attach_data.tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+
+    if attach_data.tag_id not in prompt.tag_ids and len(prompt.tag_ids) >= 10:
+        raise HTTPException(status_code=400, detail="A prompt cannot have more than 10 tags")
+
+    return storage.attach_tag(prompt_id, attach_data.tag_id)
 
 
 # ============== Prompt Version Endpoints ==============
@@ -398,6 +436,7 @@ def restore_prompt_version(prompt_id: str, version_number: int):
         collection_id=existing.collection_id,
         created_at=existing.created_at,
         updated_at=restored_at,
+        tag_ids=existing.tag_ids,
     )
     storage.create_prompt_version(prompt_id, version.title, version.content, version.description, restored_at)
     return storage.update_prompt(prompt_id, updated_prompt)

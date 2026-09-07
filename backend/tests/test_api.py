@@ -1031,3 +1031,13 @@ class TestTags:
         response = client.put(f"/prompts/{prompt['id']}", json=sample_prompt_data)
 
         assert response.json()["tag_ids"] == [tag["id"]]
+
+    def test_restore_prompt_version_does_not_clear_tag_ids(self, client: TestClient, sample_prompt_data):
+        """Restore also builds a replacement Prompt internally — same tag_ids-preservation risk as PUT/PATCH."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        tag = self._create_tag(client, "security")
+        client.post(f"/prompts/{prompt['id']}/tags", json={"tag_id": tag["id"]})
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert response.json()["tag_ids"] == [tag["id"]]

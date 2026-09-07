@@ -12,7 +12,7 @@ from datetime import datetime
 
 import pytest
 
-from app.models import Collection, Prompt
+from app.models import Collection, Prompt, Tag
 from app.storage import Storage
 
 
@@ -32,6 +32,12 @@ def _collection(**overrides) -> Collection:
     """Build a Collection with sensible defaults, overridable per test."""
     defaults = {"name": "Collection"}
     return Collection(**{**defaults, **overrides})
+
+
+def _tag(**overrides) -> Tag:
+    """Build a Tag with sensible defaults, overridable per test."""
+    defaults = {"name": "security"}
+    return Tag(**{**defaults, **overrides})
 
 
 class TestPromptCRUD:
@@ -309,3 +315,111 @@ class TestLiveObjectSemantics:
         fetched.name = "After"
 
         assert store.get_collection(collection.id).name == "After"
+
+
+class TestTagOperations:
+    """create_tag / get_tag / get_all_tags / find_tag_by_name / delete_tag / attach_tag."""
+
+    def test_create_and_get_tag(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        assert store.get_tag(tag.id) is tag
+
+    def test_get_tag_unknown_id_returns_none(self, store):
+        assert store.get_tag("nonexistent") is None
+
+    def test_get_tag_excludes_soft_deleted_by_default(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        store.delete_tag(tag.id)
+        assert store.get_tag(tag.id) is None
+
+    def test_get_tag_include_deleted_returns_soft_deleted(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        store.delete_tag(tag.id)
+        found = store.get_tag(tag.id, include_deleted=True)
+        assert found is tag
+        assert found.deleted_on is not None
+
+    def test_get_all_tags_excludes_soft_deleted(self, store):
+        active = _tag(name="active")
+        deleted = _tag(name="deleted")
+        store.create_tag(active)
+        store.create_tag(deleted)
+        store.delete_tag(deleted.id)
+        assert store.get_all_tags() == [active]
+
+    def test_get_all_tags_empty_store_returns_empty_list(self, store):
+        assert store.get_all_tags() == []
+
+    def test_find_tag_by_name_matches_case_insensitively(self, store):
+        store.create_tag(_tag(name="Security"))
+        found = store.find_tag_by_name("security")
+        assert found is not None
+        assert found.name == "Security"
+
+    def test_find_tag_by_name_no_match_returns_none(self, store):
+        assert store.find_tag_by_name("nonexistent") is None
+
+    def test_find_tag_by_name_excludes_soft_deleted(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        store.delete_tag(tag.id)
+        assert store.find_tag_by_name("security") is None
+
+    def test_delete_tag_marks_deleted_on_and_returns_true(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        assert store.delete_tag(tag.id) is True
+        assert tag.deleted_on is not None
+
+    def test_delete_tag_unknown_id_returns_false(self, store):
+        assert store.delete_tag("nonexistent") is False
+
+    def test_delete_tag_already_deleted_returns_false(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        assert store.delete_tag(tag.id) is True
+        assert store.delete_tag(tag.id) is False
+
+    def test_delete_tag_removes_it_from_every_prompt_tag_ids(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        prompt_a = _prompt(title="A", tag_ids=[tag.id])
+        prompt_b = _prompt(title="B", tag_ids=[tag.id])
+        store.create_prompt(prompt_a)
+        store.create_prompt(prompt_b)
+
+        store.delete_tag(tag.id)
+
+        assert prompt_a.tag_ids == []
+        assert prompt_b.tag_ids == []
+
+    def test_delete_tag_does_not_touch_prompts_without_it(self, store):
+        tag = _tag()
+        store.create_tag(tag)
+        untagged = _prompt(tag_ids=["some-other-tag"])
+        store.create_prompt(untagged)
+
+        store.delete_tag(tag.id)
+
+        assert untagged.tag_ids == ["some-other-tag"]
+
+    def test_attach_tag_appends_to_prompt_tag_ids(self, store):
+        prompt = _prompt()
+        store.create_prompt(prompt)
+        result = store.attach_tag(prompt.id, "tag-1")
+        assert result is prompt
+        assert prompt.tag_ids == ["tag-1"]
+
+    def test_attach_tag_is_idempotent(self, store):
+        """Attaching a tag_id already present doesn't duplicate it."""
+        prompt = _prompt(tag_ids=["tag-1"])
+        store.create_prompt(prompt)
+        store.attach_tag(prompt.id, "tag-1")
+        assert prompt.tag_ids == ["tag-1"]
+
+    def test_attach_tag_unknown_prompt_returns_none(self, store):
+        """Not reachable via the API (which 404s first) — a direct contract of the storage method itself."""
+        assert store.attach_tag("nonexistent-prompt", "tag-1") is None

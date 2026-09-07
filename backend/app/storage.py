@@ -289,7 +289,7 @@ class Storage:
         return [t for t in self._tags.values() if t.deleted_on is None]
 
     def delete_tag(self, tag_id: str) -> bool:
-        """Soft-delete a tag by stamping its deleted_on field.
+        """Soft-delete a tag and detach it from every prompt that has it.
 
         Args:
             tag_id: The id of the tag to delete.
@@ -302,7 +302,32 @@ class Storage:
         if tag is None:
             return False
         tag.deleted_on = get_current_time()
+        for prompt in self._prompts.values():
+            if tag_id in prompt.tag_ids:
+                prompt.tag_ids.remove(tag_id)
         return True
+
+    def attach_tag(self, prompt_id: str, tag_id: str) -> Optional[Prompt]:
+        """Add a tag to a prompt's tag_ids if it isn't already there.
+
+        Whether the tag itself exists, and whether the prompt is already at
+        the 10-tag cap, are cross-resource checks made by the caller
+        (app/api.py), not here.
+
+        Args:
+            prompt_id: The id of the prompt to attach the tag to.
+            tag_id: The id of the tag to attach.
+
+        Returns:
+            The updated Prompt, or None if there is no active prompt with
+            that id.
+        """
+        prompt = self.get_prompt(prompt_id)
+        if prompt is None:
+            return None
+        if tag_id not in prompt.tag_ids:
+            prompt.tag_ids.append(tag_id)
+        return prompt
 
     def find_tag_by_name(self, name: str) -> Optional[Tag]:
         """Look up an active tag by name, case-insensitively.
