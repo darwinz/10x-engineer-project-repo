@@ -1,0 +1,8 @@
+target-version = "py312"
+line-length = 120
+
+[lint]
+# E/W: pycodestyle errors/warnings (includes E501 line-too-long, W291/W293 trailing whitespace)
+# F: pyflakes (unused imports/variables, undefined names)
+# I: isort-equivalent import sorting and grouping
+select = ["E", "F", "W", "I"]

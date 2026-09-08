@@ -1,0 +1,22 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Log output appears immediately in `docker compose logs` instead of being
+      # buffered until the container's stdout pipe fills up.
+      - PYTHONUNBUFFERED=1
+      # Don't write .pyc files into the bind-mounted source below — they'd be
+      # compiled for the container's Python/architecture and pollute the host tree.
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      # Bind-mount the source so edits on the host are picked up without rebuilding
+      # the image. Dependencies are installed into the image's site-packages, not
+      # under /app, so this mount can't shadow them.
+      - ./backend:/app
+    # main.py already runs uvicorn with reload=True; reuse it here instead of the
+    # Dockerfile's non-reloading production CMD.
+    command: python main.py

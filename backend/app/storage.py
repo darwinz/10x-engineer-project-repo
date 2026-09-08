@@ -6,7 +6,8 @@ In a production environment, this would be replaced with a database.
 
 from datetime import datetime
 from typing import Dict, List, Optional
-from app.models import Prompt, Collection, get_current_time
+
+from app.models import Collection, Prompt, PromptVersion, get_current_time
 
 
 class Storage:
@@ -18,9 +19,10 @@ class Storage:
     """
 
     def __init__(self):
-        """Initialize empty prompt and collection stores."""
+        """Initialize empty prompt, collection, and version stores."""
         self._prompts: Dict[str, Prompt] = {}
         self._collections: Dict[str, Collection] = {}
+        self._versions: Dict[str, List[PromptVersion]] = {}
 
     # ============== Prompt Operations ==============
 
@@ -55,7 +57,7 @@ class Storage:
         if prompt is None or (prompt.deleted_on is not None and not include_deleted):
             return None
         return prompt
-    
+
     def get_all_prompts(self) -> List[Prompt]:
         """Return every prompt that has not been soft-deleted.
 
@@ -63,7 +65,7 @@ class Storage:
             A new list of the active Prompt objects, in insertion order.
         """
         return [p for p in self._prompts.values() if p.deleted_on is None]
-    
+
     def update_prompt(self, prompt_id: str, prompt: Prompt) -> Optional[Prompt]:
         """Replace the stored prompt with the given id.
 
@@ -79,7 +81,7 @@ class Storage:
             return None
         self._prompts[prompt_id] = prompt
         return prompt
-    
+
     def delete_prompt(self, prompt_id: str, deleted_on: Optional[datetime] = None) -> bool:
         """Soft-delete a prompt by stamping its deleted_on field.
 
@@ -101,9 +103,67 @@ class Storage:
             return False
         prompt.deleted_on = deleted_on or get_current_time()
         return True
-    
+
+    # ============== Prompt Version Operations ==============
+
+    def create_prompt_version(
+        self, prompt_id: str, title: str, content: str, description: Optional[str], created_at: datetime
+    ) -> PromptVersion:
+        """Append a new version snapshot for a prompt.
+
+        Args:
+            prompt_id: The id of the prompt this version belongs to.
+            title: The prompt's title at this version.
+            content: The prompt's content at this version.
+            description: The prompt's description at this version, or None.
+            created_at: The timestamp to record for this version.
+
+        Returns:
+            The newly created PromptVersion, with version_number one higher
+            than the prompt's current version count (1 for the first).
+        """
+        existing = self._versions.setdefault(prompt_id, [])
+        version = PromptVersion(
+            prompt_id=prompt_id,
+            version_number=len(existing) + 1,
+            title=title,
+            content=content,
+            description=description,
+            created_at=created_at,
+        )
+        existing.append(version)
+        return version
+
+    def get_prompt_versions(self, prompt_id: str) -> List[PromptVersion]:
+        """Return every version saved for a prompt, oldest first.
+
+        Args:
+            prompt_id: The id of the prompt whose versions to return.
+
+        Returns:
+            A list of the prompt's PromptVersion objects in creation order.
+            Empty if the prompt has no versions (including if it doesn't exist).
+        """
+        return list(self._versions.get(prompt_id, []))
+
+    def get_prompt_version(self, prompt_id: str, version_number: int) -> Optional[PromptVersion]:
+        """Look up one specific version of a prompt.
+
+        Args:
+            prompt_id: The id of the prompt the version belongs to.
+            version_number: The version_number to look up.
+
+        Returns:
+            The matching PromptVersion, or None if the prompt has no version
+            with that number (including if the prompt doesn't exist).
+        """
+        for version in self._versions.get(prompt_id, []):
+            if version.version_number == version_number:
+                return version
+        return None
+
     # ============== Collection Operations ==============
-    
+
     def create_collection(self, collection: Collection) -> Collection:
         """Store a new collection, keyed by its id.
 
@@ -135,7 +195,7 @@ class Storage:
         if collection is None or (collection.deleted_on is not None and not include_deleted):
             return None
         return collection
-    
+
     def get_all_collections(self) -> List[Collection]:
         """Return every collection that has not been soft-deleted.
 
@@ -143,7 +203,7 @@ class Storage:
             A new list of the active Collection objects, in insertion order.
         """
         return [c for c in self._collections.values() if c.deleted_on is None]
-    
+
     def delete_collection(self, collection_id: str) -> bool:
         """Soft-delete a collection and cascade to its active prompts.
 
@@ -168,7 +228,7 @@ class Storage:
         for prompt in self.get_prompts_by_collection(collection_id):
             self.delete_prompt(prompt.id, deleted_on)
         return True
-    
+
     def get_prompts_by_collection(self, collection_id: str) -> List[Prompt]:
         """Return the active prompts whose collection_id matches.
 
@@ -184,16 +244,17 @@ class Storage:
             p for p in self._prompts.values()
             if p.collection_id == collection_id and p.deleted_on is None
         ]
-    
+
     # ============== Utility ==============
 
     def clear(self):
-        """Remove every prompt and collection, active or soft-deleted.
+        """Remove every prompt, collection, and version, active or soft-deleted.
 
         Intended for test isolation; there is no equivalent API endpoint.
         """
         self._prompts.clear()
         self._collections.clear()
+        self._versions.clear()
 
 
 # Global storage instance

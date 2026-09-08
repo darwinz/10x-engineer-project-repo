@@ -4,13 +4,12 @@ These tests verify the API endpoints work correctly.
 Students should expand these tests significantly in Week 3.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 
 class TestHealth:
     """Tests for health endpoint."""
-    
+
     def test_health_check(self, client: TestClient):
         response = client.get("/health")
         assert response.status_code == 200
@@ -21,7 +20,7 @@ class TestHealth:
 
 class TestPrompts:
     """Tests for prompt endpoints."""
-    
+
     def test_create_prompt(self, client: TestClient, sample_prompt_data):
         response = client.post("/prompts", json=sample_prompt_data)
         assert response.status_code == 201
@@ -30,80 +29,80 @@ class TestPrompts:
         assert data["content"] == sample_prompt_data["content"]
         assert "id" in data
         assert "created_at" in data
-    
+
     def test_list_prompts_empty(self, client: TestClient):
         response = client.get("/prompts")
         assert response.status_code == 200
         data = response.json()
         assert data["prompts"] == []
         assert data["total"] == 0
-    
+
     def test_list_prompts_with_data(self, client: TestClient, sample_prompt_data):
         # Create a prompt first
         client.post("/prompts", json=sample_prompt_data)
-        
+
         response = client.get("/prompts")
         assert response.status_code == 200
         data = response.json()
         assert len(data["prompts"]) == 1
         assert data["total"] == 1
-    
+
     def test_get_prompt_success(self, client: TestClient, sample_prompt_data):
         # Create a prompt first
         create_response = client.post("/prompts", json=sample_prompt_data)
         prompt_id = create_response.json()["id"]
-        
+
         response = client.get(f"/prompts/{prompt_id}")
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == prompt_id
-    
+
     def test_get_prompt_not_found(self, client: TestClient):
         """Test that getting a non-existent prompt returns 404.
-        
+
         NOTE: This test currently FAILS due to Bug #1!
         The API returns 500 instead of 404.
         """
         response = client.get("/prompts/nonexistent-id")
         # This should be 404, but there's a bug...
         assert response.status_code == 404  # Will fail until bug is fixed
-    
+
     def test_delete_prompt(self, client: TestClient, sample_prompt_data):
         """DELETE returns 204 and the prompt is then 404 on GET (404, not 500, after the Bug #1 fix)."""
         # Create a prompt first
         create_response = client.post("/prompts", json=sample_prompt_data)
         prompt_id = create_response.json()["id"]
-        
+
         # Delete it
         response = client.delete(f"/prompts/{prompt_id}")
         assert response.status_code == 204
-        
+
         # Verify it's gone
         get_response = client.get(f"/prompts/{prompt_id}")
         assert get_response.status_code == 404
-    
+
     def test_update_prompt(self, client: TestClient, sample_prompt_data):
         """PUT replaces the fields, moves updated_at forward and leaves created_at alone (Bug #2 fix)."""
         # Create a prompt first
         create_response = client.post("/prompts", json=sample_prompt_data)
         prompt_id = create_response.json()["id"]
         original_updated_at = create_response.json()["updated_at"]
-        
+
         # Update it
         updated_data = {
             "title": "Updated Title",
             "content": "Updated content for the prompt",
             "description": "Updated description"
         }
-        
+
         import time
         time.sleep(0.1)  # Small delay to ensure timestamp would change
-        
+
         response = client.put(f"/prompts/{prompt_id}", json=updated_data)
         assert response.status_code == 200
         data = response.json()
         assert data["title"] == "Updated Title"
-        
+
         # updated_at must move forward on every update (Bug #2)
         assert data["updated_at"] != original_updated_at
         assert data["updated_at"] > original_updated_at
@@ -113,28 +112,128 @@ class TestPrompts:
         """PUT on an id that was never created returns 404."""
         response = client.put("/prompts/nonexistent-id", json=sample_prompt_data)
         assert response.status_code == 404
-    
+
     def test_sorting_order(self, client: TestClient):
         """Test that prompts are sorted newest first.
-        
+
         NOTE: This test might fail due to Bug #3!
         """
         import time
-        
+
         # Create prompts with delay
         prompt1 = {"title": "First", "content": "First prompt content"}
         prompt2 = {"title": "Second", "content": "Second prompt content"}
-        
+
         client.post("/prompts", json=prompt1)
         time.sleep(0.1)
         client.post("/prompts", json=prompt2)
-        
+
         response = client.get("/prompts")
         prompts = response.json()["prompts"]
-        
+
         # Newest (Second) should be first
         assert prompts[0]["title"] == "Second"  # Will fail until Bug #3 fixed
 
+    def test_list_prompts_search_matches_title(self, client: TestClient):
+        client.post("/prompts", json={"title": "Security review", "content": "Look for issues"})
+        client.post("/prompts", json={"title": "Code review", "content": "Something else"})
+
+        response = client.get("/prompts?search=security")
+        titles = [p["title"] for p in response.json()["prompts"]]
+        assert titles == ["Security review"]
+
+    def test_list_prompts_search_matches_description(self, client: TestClient):
+        client.post(
+            "/prompts",
+            json={"title": "Untitled", "content": "content", "description": "Helps with OWASP audits"},
+        )
+        response = client.get("/prompts?search=owasp")
+        assert response.json()["total"] == 1
+
+    def test_list_prompts_search_no_match_returns_empty(self, client: TestClient, sample_prompt_data):
+        client.post("/prompts", json=sample_prompt_data)
+        response = client.get("/prompts?search=nonexistent-term-xyz")
+        assert response.status_code == 200
+        assert response.json() == {"prompts": [], "total": 0}
+
+    def test_list_prompts_collection_and_search_combine(self, client: TestClient, sample_collection_data):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        client.post(
+            "/prompts",
+            json={"title": "Security review", "content": "c", "collection_id": collection_id},
+        )
+        client.post("/prompts", json={"title": "Security review", "content": "c"})  # no collection
+
+        response = client.get(f"/prompts?collection_id={collection_id}&search=security")
+        assert response.json()["total"] == 1
+
+    def test_list_prompts_unknown_collection_id_returns_empty_not_error(self, client: TestClient, sample_prompt_data):
+        """An unmatched collection_id filter is not a validation error — just no results."""
+        client.post("/prompts", json=sample_prompt_data)
+        response = client.get("/prompts?collection_id=nonexistent-collection")
+        assert response.status_code == 200
+        assert response.json() == {"prompts": [], "total": 0}
+
+    def test_create_prompt_missing_title_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"content": "content only"})
+        assert response.status_code == 422
+
+    def test_create_prompt_missing_content_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"title": "title only"})
+        assert response.status_code == 422
+
+    def test_create_prompt_empty_title_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"title": "", "content": "content"})
+        assert response.status_code == 422
+
+    def test_create_prompt_title_too_long_returns_422(self, client: TestClient):
+        response = client.post("/prompts", json={"title": "x" * 201, "content": "content"})
+        assert response.status_code == 422
+
+    def test_create_prompt_description_too_long_returns_422(self, client: TestClient):
+        response = client.post(
+            "/prompts", json={"title": "T", "content": "content", "description": "x" * 501}
+        )
+        assert response.status_code == 422
+
+    def test_create_prompt_unknown_collection_returns_400(self, client: TestClient, sample_prompt_data):
+        response = client.post("/prompts", json={**sample_prompt_data, "collection_id": "nonexistent"})
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Collection not found"}
+
+    def test_create_prompt_with_valid_collection_succeeds(
+        self, client: TestClient, sample_prompt_data, sample_collection_data
+    ):
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        response = client.post("/prompts", json={**sample_prompt_data, "collection_id": collection_id})
+        assert response.status_code == 201
+        assert response.json()["collection_id"] == collection_id
+
+    def test_update_prompt_unknown_collection_returns_400(self, client: TestClient, sample_prompt_data):
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(
+            f"/prompts/{prompt_id}", json={**sample_prompt_data, "collection_id": "nonexistent"}
+        )
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Collection not found"}
+
+    def test_update_prompt_missing_content_returns_422(self, client: TestClient, sample_prompt_data):
+        """PUT requires the full PromptUpdate shape; a missing required field is 422, not silently kept."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(f"/prompts/{prompt_id}", json={"title": "Only title"})
+        assert response.status_code == 422
+
+    def test_update_prompt_omitted_optional_fields_are_cleared(self, client: TestClient, sample_prompt_data):
+        """PUT is a full replace: description isn't resent, so it's cleared rather than kept."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(f"/prompts/{prompt_id}", json={"title": "T", "content": "New content"})
+        assert response.status_code == 200
+        assert response.json()["description"] is None
+
+    def test_update_prompt_preserves_id(self, client: TestClient, sample_prompt_data):
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        response = client.put(f"/prompts/{prompt_id}", json=sample_prompt_data)
+        assert response.json()["id"] == prompt_id
 
 
 class TestPatchPrompt:
@@ -145,7 +244,8 @@ class TestPatchPrompt:
         return client.post("/prompts", json={**sample_prompt_data, **extra}).json()
 
     def test_patch_single_field_leaves_others_unchanged(self, client: TestClient, sample_prompt_data):
-        """Patching only the title changes the title and updated_at; every other field, the id and created_at are untouched, and the change is persisted."""
+        """Patching only the title changes the title and updated_at; every other field, the id
+        and created_at are untouched, and the change is persisted."""
         import time
         original = self._create(client, sample_prompt_data)
         time.sleep(0.05)
@@ -203,7 +303,8 @@ class TestPatchPrompt:
         assert data["title"] == original["title"]
 
     def test_patch_null_required_field_returns_400(self, client: TestClient, sample_prompt_data):
-        """Sending null for title or content is rejected with 400 naming the field, and the prompt is left exactly as it was."""
+        """Sending null for title or content is rejected with 400 naming the field, and the
+        prompt is left exactly as it was."""
         original = self._create(client, sample_prompt_data)
 
         for field in ("title", "content"):
@@ -265,28 +366,266 @@ class TestPatchPrompt:
         assert data["created_at"] == original["created_at"]
         assert data["deleted_on"] is None
 
+
+class TestPromptVersions:
+    """Tests for GET /prompts/{id}/versions (specs/prompt-versions.md, US-1)."""
+
+    def test_creating_a_prompt_creates_version_1(self, client: TestClient, sample_prompt_data):
+        """POST /prompts immediately creates a version 1 snapshot matching the created prompt."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.get(f"/prompts/{prompt['id']}/versions")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        version = data["versions"][0]
+        assert version["version_number"] == 1
+        assert version["title"] == sample_prompt_data["title"]
+        assert version["content"] == sample_prompt_data["content"]
+        assert version["description"] == sample_prompt_data["description"]
+        assert version["created_at"] == prompt["created_at"]
+
+    def test_patch_changing_content_creates_version_2(self, client: TestClient, sample_prompt_data):
+        """A PATCH that changes content grows the version count from 1 to 2 (US-2)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "New content"})
+
+        versions = client.get(f"/prompts/{prompt['id']}/versions").json()
+        assert versions["total"] == 2
+        assert {v["version_number"] for v in versions["versions"]} == {1, 2}
+
+    def test_patch_only_collection_id_does_not_create_new_version(
+        self, client: TestClient, sample_prompt_data, sample_collection_data
+    ):
+        """A PATCH that touches only collection_id isn't a content change (US-2)."""
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.patch(f"/prompts/{prompt['id']}", json={"collection_id": collection_id})
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
+    def test_patch_empty_body_does_not_create_new_version(self, client: TestClient, sample_prompt_data):
+        """An empty-body PATCH is a no-op edit and must not create a new version (US-3)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.patch(f"/prompts/{prompt['id']}", json={})
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
+    def test_put_changing_content_creates_new_version(self, client: TestClient, sample_prompt_data):
+        """A PUT that changes content grows the version count from 1 to 2 (US-2)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.put(
+            f"/prompts/{prompt['id']}",
+            json={**sample_prompt_data, "content": "Completely different content"},
+        )
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 2
+
+    def test_put_identical_values_does_not_create_new_version(self, client: TestClient, sample_prompt_data):
+        """A PUT that resends the exact same title/content/description is a no-op edit (US-3)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.put(f"/prompts/{prompt['id']}", json=sample_prompt_data)
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
+    def test_list_versions_ordered_newest_first(self, client: TestClient, sample_prompt_data):
+        """3 versions come back highest version_number first (US-4)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v3 content"})
+
+        versions = client.get(f"/prompts/{prompt['id']}/versions").json()["versions"]
+        assert [v["version_number"] for v in versions] == [3, 2, 1]
+
+    def test_get_versions_for_unknown_prompt_returns_404(self, client: TestClient):
+        """GET /prompts/{id}/versions on an unknown prompt id returns 404 (US-4)."""
+        response = client.get("/prompts/nonexistent-id/versions")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_get_versions_for_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        """GET /prompts/{id}/versions on a soft-deleted prompt returns 404 (US-4)."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        client.delete(f"/prompts/{prompt_id}")
+
+        response = client.get(f"/prompts/{prompt_id}/versions")
+        assert response.status_code == 404
+
+    def test_get_single_version_returns_its_content(self, client: TestClient, sample_prompt_data):
+        """GET /prompts/{id}/versions/1 returns version 1's stored title/content/description (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        response = client.get(f"/prompts/{prompt['id']}/versions/1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["version_number"] == 1
+        assert data["title"] == sample_prompt_data["title"]
+        assert data["content"] == sample_prompt_data["content"]
+
+    def test_get_single_version_unknown_version_number_returns_404(self, client: TestClient, sample_prompt_data):
+        """A version_number that doesn't exist on this prompt is 404 'Version not found' (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.get(f"/prompts/{prompt['id']}/versions/99")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Version not found"}
+
+    def test_get_single_version_unknown_prompt_returns_404_prompt_not_found(self, client: TestClient):
+        """An unknown prompt id is 404 'Prompt not found', distinct from an unknown version (US-5)."""
+        response = client.get("/prompts/nonexistent-id/versions/1")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_get_single_version_non_integer_returns_422(self, client: TestClient, sample_prompt_data):
+        """A non-integer version_number is rejected by FastAPI's path-parameter validation (US-5)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.get(f"/prompts/{prompt['id']}/versions/not-a-number")
+
+        assert response.status_code == 422
+
+    def test_restore_sets_prompt_content_to_that_version(self, client: TestClient, sample_prompt_data):
+        """Restoring version 1 after a content change makes the live prompt match version 1 again (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content"] == sample_prompt_data["content"]
+        assert data["title"] == sample_prompt_data["title"]
+        assert data["id"] == prompt["id"]
+
+    def test_restore_leaves_collection_id_untouched(
+        self, client: TestClient, sample_prompt_data, sample_collection_data
+    ):
+        """Restoring content never moves the prompt between collections (US-6)."""
+        collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
+        prompt = client.post(
+            "/prompts", json={**sample_prompt_data, "collection_id": collection_id}
+        ).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert response.json()["collection_id"] == collection_id
+
+    def test_restore_creates_a_new_version(self, client: TestClient, sample_prompt_data):
+        """Restore always appends a new version rather than rewinding in place (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        client.patch(f"/prompts/{prompt['id']}", json={"content": "v2 content"})
+
+        client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        versions = client.get(f"/prompts/{prompt['id']}/versions").json()
+        assert versions["total"] == 3
+        assert versions["versions"][0]["version_number"] == 3
+        assert versions["versions"][0]["content"] == sample_prompt_data["content"]
+
+    def test_restore_current_version_still_creates_a_new_version(self, client: TestClient, sample_prompt_data):
+        """Restoring the prompt's own current version is not a no-op — it still appends (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 2
+
+    def test_restore_unknown_version_returns_404_and_creates_nothing(self, client: TestClient, sample_prompt_data):
+        """Restoring a version_number that doesn't exist is 404 and does not create a version (US-6)."""
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/99/restore")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Version not found"}
+        assert client.get(f"/prompts/{prompt['id']}/versions").json()["total"] == 1
+
+    def test_restore_unknown_prompt_returns_404(self, client: TestClient):
+        """Restoring on an unknown prompt id is 404 'Prompt not found' (US-6)."""
+        response = client.post("/prompts/nonexistent-id/versions/1/restore")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_restore_deleted_prompt_returns_404(self, client: TestClient, sample_prompt_data):
+        """Restoring on a soft-deleted prompt is 404, same as every other prompt sub-resource (US-6)."""
+        prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
+        client.delete(f"/prompts/{prompt_id}")
+
+        response = client.post(f"/prompts/{prompt_id}/versions/1/restore")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Prompt not found"}
+
+    def test_restore_bumps_updated_at(self, client: TestClient, sample_prompt_data):
+        """Restoring is itself an edit: updated_at moves forward (US-6)."""
+        import time
+
+        prompt = client.post("/prompts", json=sample_prompt_data).json()
+        time.sleep(0.05)
+
+        response = client.post(f"/prompts/{prompt['id']}/versions/1/restore")
+
+        assert response.json()["updated_at"] > prompt["updated_at"]
+
+
 class TestCollections:
     """Tests for collection endpoints."""
-    
+
     def test_create_collection(self, client: TestClient, sample_collection_data):
         response = client.post("/collections", json=sample_collection_data)
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == sample_collection_data["name"]
         assert "id" in data
-    
+
     def test_list_collections(self, client: TestClient, sample_collection_data):
         client.post("/collections", json=sample_collection_data)
-        
+
         response = client.get("/collections")
         assert response.status_code == 200
         data = response.json()
         assert len(data["collections"]) == 1
-    
+
+    def test_list_collections_empty(self, client: TestClient):
+        response = client.get("/collections")
+        assert response.status_code == 200
+        assert response.json() == {"collections": [], "total": 0}
+
+    def test_get_collection_success(self, client: TestClient, sample_collection_data):
+        created = client.post("/collections", json=sample_collection_data).json()
+        response = client.get(f"/collections/{created['id']}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == created["id"]
+        assert data["name"] == sample_collection_data["name"]
+
     def test_get_collection_not_found(self, client: TestClient):
         response = client.get("/collections/nonexistent-id")
         assert response.status_code == 404
-    
+        assert response.json() == {"detail": "Collection not found"}
+
+    def test_create_collection_empty_name_returns_422(self, client: TestClient):
+        response = client.post("/collections", json={"name": ""})
+        assert response.status_code == 422
+
+    def test_create_collection_name_too_long_returns_422(self, client: TestClient):
+        response = client.post("/collections", json={"name": "x" * 101})
+        assert response.status_code == 422
+
+    def test_create_collection_description_too_long_returns_422(self, client: TestClient):
+        response = client.post("/collections", json={"name": "N", "description": "x" * 501})
+        assert response.status_code == 422
+
     def test_delete_collection_not_found(self, client: TestClient):
         """DELETE on a collection id that was never created returns 404."""
         response = client.delete("/collections/nonexistent-id")
@@ -327,7 +666,8 @@ class TestCollections:
         assert prompt.collection_id == collection_id
 
     def test_delete_collection_leaves_other_prompts_alone(self, client: TestClient, sample_prompt_data):
-        """Cascade only touches the deleted collection's prompts; prompts in other collections or in none are still listed."""
+        """Cascade only touches the deleted collection's prompts; prompts in other collections
+        or in none are still listed."""
         doomed_id = client.post("/collections", json={"name": "Doomed"}).json()["id"]
         kept_id = client.post("/collections", json={"name": "Kept"}).json()["id"]
         client.post("/prompts", json={**sample_prompt_data, "title": "In doomed", "collection_id": doomed_id})
@@ -346,7 +686,9 @@ class TestCollections:
         assert client.delete(f"/collections/{collection_id}").status_code == 204
         assert client.delete(f"/collections/{collection_id}").status_code == 404
 
-    def test_cannot_create_prompt_in_deleted_collection(self, client: TestClient, sample_collection_data, sample_prompt_data):
+    def test_cannot_create_prompt_in_deleted_collection(
+        self, client: TestClient, sample_collection_data, sample_prompt_data
+    ):
         """A soft-deleted collection is not a valid target for a new prompt (400)."""
         collection_id = client.post("/collections", json=sample_collection_data).json()["id"]
         client.delete(f"/collections/{collection_id}")
@@ -366,7 +708,8 @@ class TestSoftDelete:
         assert collection["deleted_on"] is None
 
     def test_delete_prompt_is_soft(self, client: TestClient, sample_prompt_data):
-        """DELETE hides the prompt from the API but the record remains, stamped with deleted_on, reachable with include_deleted=True."""
+        """DELETE hides the prompt from the API but the record remains, stamped with deleted_on,
+        reachable with include_deleted=True."""
         prompt_id = client.post("/prompts", json=sample_prompt_data).json()["id"]
 
         assert client.delete(f"/prompts/{prompt_id}").status_code == 204
