@@ -7,16 +7,36 @@ from uuid import uuid4
 
 
 def generate_id() -> str:
+    """Generate a new unique identifier for a prompt or collection.
+
+    Returns:
+        A random uuid4 value rendered as a string.
+    """
     return str(uuid4())
 
 
 def get_current_time() -> datetime:
+    """Return the current time for timestamping records.
+
+    Returns:
+        A naive (timezone-unaware) UTC datetime.
+    """
     return datetime.utcnow()
 
 
 # ============== Prompt Models ==============
 
 class PromptBase(BaseModel):
+    """Fields common to every prompt request body.
+
+    Attributes:
+        title: Prompt title, 1-200 characters.
+        content: The template text, at least 1 character. May contain
+            `{{variable}}` placeholders.
+        description: Optional description, up to 500 characters.
+        collection_id: Id of the collection this prompt belongs to, or
+            None if it is not grouped into a collection.
+    """
     title: str = Field(..., min_length=1, max_length=200)
     content: str = Field(..., min_length=1)
     description: Optional[str] = Field(None, max_length=500)
@@ -24,10 +44,16 @@ class PromptBase(BaseModel):
 
 
 class PromptCreate(PromptBase):
+    """Request body for POST /prompts. Same fields as PromptBase."""
     pass
 
 
 class PromptUpdate(PromptBase):
+    """Request body for PUT /prompts/{id}.
+
+    All fields inherited from PromptBase are required, so a PUT always
+    replaces the full set of editable values on the target prompt.
+    """
     pass
 
 
@@ -71,17 +97,25 @@ class Prompt(PromptBase):
     deleted_on: Optional[datetime] = None
 
     class Config:
+        """Allow building a Prompt from attribute access, not just a dict."""
         from_attributes = True
 
 
 # ============== Collection Models ==============
 
 class CollectionBase(BaseModel):
+    """Fields common to every collection request body.
+
+    Attributes:
+        name: Collection name, 1-100 characters.
+        description: Optional description, up to 500 characters.
+    """
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
 
 
 class CollectionCreate(CollectionBase):
+    """Request body for POST /collections. Same fields as CollectionBase."""
     pass
 
 
@@ -99,21 +133,41 @@ class Collection(CollectionBase):
     deleted_on: Optional[datetime] = None
 
     class Config:
+        """Allow building a Collection from attribute access, not just a dict."""
         from_attributes = True
 
 
 # ============== Response Models ==============
 
 class PromptList(BaseModel):
+    """Response body for GET /prompts.
+
+    Attributes:
+        prompts: The matching prompts, in the order returned by the endpoint.
+        total: The number of prompts in `prompts`.
+    """
     prompts: List[Prompt]
     total: int
 
 
 class CollectionList(BaseModel):
+    """Response body for GET /collections.
+
+    Attributes:
+        collections: The active collections, in the order returned by the
+            endpoint.
+        total: The number of collections in `collections`.
+    """
     collections: List[Collection]
     total: int
 
 
 class HealthResponse(BaseModel):
+    """Response body for GET /health.
+
+    Attributes:
+        status: Literal "healthy" when the service is up.
+        version: The running application's version string.
+    """
     status: str
     version: str

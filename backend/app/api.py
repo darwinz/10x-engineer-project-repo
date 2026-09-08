@@ -35,6 +35,11 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():
+    """Report that the service is running.
+
+    Returns:
+        A HealthResponse with status "healthy" and the running app version.
+    """
     return HealthResponse(status="healthy", version=__version__)
 
 
@@ -45,6 +50,19 @@ def list_prompts(
     collection_id: Optional[str] = None,
     search: Optional[str] = None
 ):
+    """List active prompts, optionally filtered, newest first.
+
+    Args:
+        collection_id: Query parameter; if given, only prompts with this
+            exact `collection_id` are returned.
+        search: Query parameter; if given, only prompts whose title or
+            description contain this text (case-insensitive) are returned.
+            Applied after `collection_id` filtering.
+
+    Returns:
+        A PromptList of the matching active prompts, sorted by
+        `created_at` descending, along with the count.
+    """
     prompts = storage.get_all_prompts()
     
     # Filter by collection if specified
@@ -84,6 +102,20 @@ def get_prompt(prompt_id: str):
 
 @app.post("/prompts", response_model=Prompt, status_code=201)
 def create_prompt(prompt_data: PromptCreate):
+    """Create a new prompt.
+
+    Args:
+        prompt_data: The title, content, and optional description /
+            collection_id for the new prompt.
+
+    Returns:
+        The newly created Prompt, with a server-generated id and
+        timestamps.
+
+    Raises:
+        HTTPException: 400 if `prompt_data.collection_id` is set but no
+            active collection has that id.
+    """
     # Validate collection exists if provided
     if prompt_data.collection_id:
         collection = storage.get_collection(prompt_data.collection_id)
@@ -194,6 +226,18 @@ def patch_prompt(prompt_id: str, prompt_data: PromptPatch):
 
 @app.delete("/prompts/{prompt_id}", status_code=204)
 def delete_prompt(prompt_id: str):
+    """Soft-delete a prompt.
+
+    Args:
+        prompt_id: Path parameter; the id of the prompt to delete.
+
+    Returns:
+        None. The response is an empty 204.
+
+    Raises:
+        HTTPException: 404 if no active prompt has that id, including one
+            that has already been deleted.
+    """
     if not storage.delete_prompt(prompt_id):
         raise HTTPException(status_code=404, detail="Prompt not found")
     return None
@@ -203,12 +247,29 @@ def delete_prompt(prompt_id: str):
 
 @app.get("/collections", response_model=CollectionList)
 def list_collections():
+    """List every active collection.
+
+    Returns:
+        A CollectionList of the active collections and the count.
+    """
     collections = storage.get_all_collections()
     return CollectionList(collections=collections, total=len(collections))
 
 
 @app.get("/collections/{collection_id}", response_model=Collection)
 def get_collection(collection_id: str):
+    """Return a single collection by id.
+
+    Args:
+        collection_id: Path parameter; the id of the collection to fetch.
+
+    Returns:
+        The matching Collection.
+
+    Raises:
+        HTTPException: 404 if no collection has that id or it has been
+            soft-deleted.
+    """
     collection = storage.get_collection(collection_id)
     if not collection:
         raise HTTPException(status_code=404, detail="Collection not found")
@@ -217,6 +278,16 @@ def get_collection(collection_id: str):
 
 @app.post("/collections", response_model=Collection, status_code=201)
 def create_collection(collection_data: CollectionCreate):
+    """Create a new collection.
+
+    Args:
+        collection_data: The name and optional description for the new
+            collection.
+
+    Returns:
+        The newly created Collection, with a server-generated id and
+        timestamp.
+    """
     collection = Collection(**collection_data.model_dump())
     return storage.create_collection(collection)
 
