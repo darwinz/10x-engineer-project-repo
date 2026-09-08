@@ -300,3 +300,13 @@ Setup, at the root of `frontend/` (sibling to `package.json`, outside the `src/`
 - `tailwind.config.ts` — `content` globs pointing at `src/**/*.{ts,tsx}`.
 - `postcss.config.js` — `tailwindcss` and `autoprefixer`.
 - `src/index.css` — the three `@tailwind` directives (`base`, `components`, `utilities`), imported once in `main.tsx`.
+
+---
+
+## 8. Linting
+
+**Decision: ESLint**, not oxlint — chosen over oxlint's speed advantage for its maturity and its type-aware/React-hooks rule depth, given how much of Section 4's state management leans on custom per-resource hooks (`usePrompt`, `useCollections`, `usePromptVersions`).
+
+- Config includes `typescript-eslint` (this is a TypeScript codebase, per the `Prompt`/`Collection`/`PromptVersion` interfaces in [Overview](#overview)) and `eslint-plugin-react-hooks`, so those three hooks get `exhaustive-deps` and rules-of-hooks enforcement — the specific correctness gap that motivated ESLint over oxlint in the first place.
+- Config lives at `frontend/eslint.config.js` (flat config), sibling to `tailwind.config.ts`.
+- Runs as a CI gate the same way `ruff` already does for the backend (`docs/ci-gate-evidence.md`'s pattern: lint + test on every push/PR), not just an editor-only check.
