@@ -6,6 +6,8 @@ Status: Draft — planned for a future module. Not yet implemented.
 
 A React (Vite, TypeScript) single-page app consuming the existing FastAPI backend documented in `docs/API_REFERENCE.md`, against the models in `backend/app/models.py`. No auth exists on the backend and CORS is already open (`allow_origins=["*"]`), so this spec adds no login flow, token storage, or auth headers — every request is a plain, unauthenticated fetch.
 
+**TypeScript, not JavaScript — decided, not assumed.** Every field in `backend/app/models.py` already has a concrete type and a decided nullability (e.g. `description: Optional[str]`, `collection_id: Optional[str]`). Mirroring that as real TypeScript interfaces (below) rather than plain JS objects means a typo'd field name or a wrong optional/required assumption at the `api/` boundary — exactly where every fetch response gets cast to one of these shapes — is a compile error, not a bug found at runtime. This has a concrete consequence for the current scaffold: `npm create vite@latest -- --template react` produces plain JavaScript (`.jsx`, no `tsconfig.json`, no `typescript` package). Before any real screen in Section 2 is built, the scaffold needs converting — file extensions to `.tsx`/`.ts`, a `tsconfig.json` (plus `tsconfig.node.json` for `vite.config.ts` itself), and the `typescript` package added; `@types/react`/`@types/react-dom` are already present in `package.json`. This is a one-time setup step, not an ongoing decision each screen has to make.
+
 **Ground truth this spec is built against** (endpoints actually implemented, not the tagging/versioning aspirations in other specs beyond what's live):
 
 | Method | Endpoint |
@@ -276,7 +278,7 @@ frontend/src/
 │   ├── promptVersions.ts                  # listPromptVersions, getPromptVersion, restorePromptVersion
 │   └── collections.ts                     # listCollections, createCollection, deleteCollection
 ├── types.ts                                # Prompt, Collection, PromptVersion, *List, ApiErrorDetail, ValidationErrorDetail
-├── index.css                                # @tailwind base/components/utilities — see Section 7
+├── index.css                                # @import "tailwindcss" (v4) — see Section 7
 ├── App.tsx                                 # React Router route table
 └── main.tsx                                 # imports index.css once
 ```
@@ -287,7 +289,7 @@ frontend/src/
 
 ## 7. Styling
 
-**Decision: Tailwind CSS**, utility classes applied directly in each component's JSX — no CSS Modules, no styled-components, no separate per-component stylesheet.
+**Decision: Tailwind CSS v4**, utility classes applied directly in each component's JSX — no CSS Modules, no styled-components, no separate per-component stylesheet.
 
 Reasoning:
 
@@ -295,11 +297,12 @@ Reasoning:
 - **Sized to the app.** Four screens with a small, repeated set of visual patterns (cards, list rows, modals, form fields, banners) don't need a component-styling abstraction built for a much larger design system — the same "don't reach for infrastructure this app doesn't need" reasoning already applied to state management in Section 4.
 - **Composes cleanly with the shared components in Section 2.** `ErrorBanner`, `EmptyState`, `LoadingSpinner`, `DeleteConfirmDialog`, and both forms each own their utility classes internally; no component in the Section 2 inventory gains a styling-related prop as a result of this decision — appearance is internal to each component, not something a parent configures.
 
-Setup, at the root of `frontend/` (sibling to `package.json`, outside the `src/` tree shown in Section 6):
+Setup — v4 drops the config-file-and-directives pattern earlier Tailwind versions used, so there is deliberately less here than a v3 setup would have:
 
-- `tailwind.config.ts` — `content` globs pointing at `src/**/*.{ts,tsx}`.
-- `postcss.config.js` — `tailwindcss` and `autoprefixer`.
-- `src/index.css` — the three `@tailwind` directives (`base`, `components`, `utilities`), imported once in `main.tsx`.
+- `npm install tailwindcss @tailwindcss/vite`.
+- `vite.config.ts` — add the `@tailwindcss/vite` plugin alongside `@vitejs/plugin-react`.
+- `src/index.css` — a single `@import "tailwindcss";` line (v4 syntax; the old three-directive `@tailwind base/components/utilities` form is v3-only and does not work in v4), imported once in `main.tsx`.
+- No `tailwind.config.ts` or `postcss.config.js` is required by default — v4 auto-detects content and needs no PostCSS pipeline of its own when using the Vite plugin. A `tailwind.config.ts` remains optional, only if a custom theme or a plugin is added later.
 
 ---
 
