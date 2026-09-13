@@ -287,15 +287,15 @@ frontend/src/
 │       ├── CollectionList.jsx
 │       ├── CollectionCard.jsx
 │       ├── CreateCollectionModal.jsx
+│       ├── CollectionForm.jsx
 │       └── useCollections.js             # GET/POST/DELETE /collections
-├── components/                            # shared across screens
+├── components/                            # used by more than one screen — see Section 2
 │   ├── AppShell.jsx
 │   ├── LoadingSpinner.jsx
 │   ├── ErrorBanner.jsx
 │   ├── EmptyState.jsx
 │   ├── DeleteConfirmDialog.jsx
-│   ├── PromptForm.jsx
-│   └── CollectionForm.jsx
+│   └── PromptForm.jsx
 ├── api/
 │   ├── client.js                          # fetch wrapper: base URL, JSON parsing, matches the ApiErrorDetail/ValidationErrorDetail shapes from types.js
 │   ├── prompts.js                         # functions: listPrompts, getPrompt, createPrompt, updatePrompt, deletePrompt
