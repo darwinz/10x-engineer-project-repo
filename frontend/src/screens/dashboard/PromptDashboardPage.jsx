@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import AppShell from '../../components/AppShell'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ErrorBanner from '../../components/ErrorBanner'
@@ -8,12 +8,21 @@ import CreatePromptModal from './CreatePromptModal'
 import useDashboardPrompts from './useDashboardPrompts'
 import { ApiError } from '../../api/client'
 
+const SEARCH_DEBOUNCE_MS = 300
+
 /**
  * Dashboard screen (`/`): browse, search, filter, and create prompts.
  */
 function PromptDashboardPage() {
   const [collectionId, setCollectionId] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timeout)
+  }, [searchInput])
+
   const { prompts, collections, isLoading, error, reload, create } = useDashboardPrompts({
     collectionId,
     search,
@@ -27,6 +36,8 @@ function PromptDashboardPage() {
     () => Object.fromEntries(collections.map((collection) => [collection.id, collection])),
     [collections],
   )
+
+  const hasActiveFilters = Boolean(collectionId || search)
 
   async function handleCreate(values) {
     setIsCreating(true)
@@ -53,7 +64,7 @@ function PromptDashboardPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-gray-900">Prompts</h1>
         <button
           type="button"
@@ -68,9 +79,9 @@ function PromptDashboardPage() {
         <PromptFilterBar
           collections={collections}
           collectionId={collectionId}
-          search={search}
+          search={searchInput}
           onCollectionChange={setCollectionId}
-          onSearchChange={setSearch}
+          onSearchChange={setSearchInput}
         />
       </div>
 
@@ -78,13 +89,19 @@ function PromptDashboardPage() {
         {isLoading && <LoadingSpinner label="Loading prompts…" />}
         {!isLoading && error && <ErrorBanner error={error} onRetry={reload} />}
         {!isLoading && !error && (
-          <PromptList prompts={prompts} collectionsById={collectionsById} onCreate={openModal} />
+          <PromptList
+            prompts={prompts}
+            collectionsById={collectionsById}
+            onCreate={openModal}
+            hasActiveFilters={hasActiveFilters}
+          />
         )}
       </div>
 
       <CreatePromptModal
         open={isModalOpen}
         collections={collections}
+        isLoadingCollections={isLoading}
         submitError={createError}
         isSubmitting={isCreating}
         onSubmit={handleCreate}

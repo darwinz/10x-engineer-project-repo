@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 /**
  * Find the field-level validation message for a given field name, if the
@@ -17,6 +17,17 @@ function fieldError(submitError, field) {
 }
 
 /**
+ * Client-side required-field checks, so a blank title/content is caught
+ * before a round trip to the server.
+ */
+function validate(values) {
+  const errors = {}
+  if (!values.title.trim()) errors.title = 'Title is required.'
+  if (!values.content.trim()) errors.content = 'Content is required.'
+  return errors
+}
+
+/**
  * Create/edit form for a prompt: title, {{variable}}-templated content, an
  * optional description, and an optional single collection.
  *
@@ -27,6 +38,7 @@ function fieldError(submitError, field) {
  * @param {{
  *   initialValues?: { title?: string, content?: string, description?: string, collection_id?: string|null },
  *   collections: import('../types').Collection[],
+ *   isLoadingCollections?: boolean,
  *   submitError?: string|{detail: Array<{loc: Array<string|number>, msg: string}>}|null,
  *   isSubmitting?: boolean,
  *   submitLabel?: string,
@@ -37,6 +49,7 @@ function fieldError(submitError, field) {
 function PromptForm({
   initialValues = {},
   collections,
+  isLoadingCollections,
   submitError,
   isSubmitting,
   submitLabel = 'Save',
@@ -47,16 +60,47 @@ function PromptForm({
   const [content, setContent] = useState(initialValues.content ?? '')
   const [description, setDescription] = useState(initialValues.description ?? '')
   const [collectionId, setCollectionId] = useState(initialValues.collection_id ?? '')
+  const [clientErrors, setClientErrors] = useState({})
+
+  const titleErrorId = useId()
+  const contentErrorId = useId()
+  const descriptionErrorId = useId()
+  const collectionErrorId = useId()
 
   const formLevelError = typeof submitError === 'string' ? submitError : undefined
+  const titleError = clientErrors.title ?? fieldError(submitError, 'title')
+  const contentError = clientErrors.content ?? fieldError(submitError, 'content')
+  const descriptionError = fieldError(submitError, 'description')
+  const collectionError = fieldError(submitError, 'collection_id')
 
   function handleSubmit(event) {
     event.preventDefault()
-    onSubmit({ title, content, description, collection_id: collectionId })
+    const values = { title, content, description, collection_id: collectionId }
+    const errors = validate(values)
+    if (Object.keys(errors).length > 0) {
+      setClientErrors(errors)
+      return
+    }
+    setClientErrors({})
+    onSubmit(values)
+  }
+
+  function handleTitleChange(value) {
+    setTitle(value)
+    if (clientErrors.title && value.trim()) {
+      setClientErrors((current) => ({ ...current, title: undefined }))
+    }
+  }
+
+  function handleContentChange(value) {
+    setContent(value)
+    if (clientErrors.content && value.trim()) {
+      setClientErrors((current) => ({ ...current, content: undefined }))
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
       {formLevelError && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
           {formLevelError}
@@ -71,11 +115,16 @@ function PromptForm({
           id="prompt-title"
           type="text"
           value={title}
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => handleTitleChange(event.target.value)}
+          placeholder="e.g. Summarize Article"
+          aria-invalid={Boolean(titleError)}
+          aria-describedby={titleError ? titleErrorId : undefined}
           className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
         />
-        {fieldError(submitError, 'title') && (
-          <p className="mt-1 text-sm text-red-700">{fieldError(submitError, 'title')}</p>
+        {titleError && (
+          <p id={titleErrorId} role="alert" className="mt-1 text-sm text-red-700">
+            {titleError}
+          </p>
         )}
       </div>
 
@@ -86,13 +135,17 @@ function PromptForm({
         <textarea
           id="prompt-content"
           value={content}
-          onChange={(event) => setContent(event.target.value)}
+          onChange={(event) => handleContentChange(event.target.value)}
           rows={6}
           placeholder="Use {{variable}} for templated values"
+          aria-invalid={Boolean(contentError)}
+          aria-describedby={contentError ? contentErrorId : undefined}
           className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono"
         />
-        {fieldError(submitError, 'content') && (
-          <p className="mt-1 text-sm text-red-700">{fieldError(submitError, 'content')}</p>
+        {contentError && (
+          <p id={contentErrorId} role="alert" className="mt-1 text-sm text-red-700">
+            {contentError}
+          </p>
         )}
       </div>
 
@@ -105,10 +158,15 @@ function PromptForm({
           type="text"
           value={description}
           onChange={(event) => setDescription(event.target.value)}
+          placeholder="What is this prompt for?"
+          aria-invalid={Boolean(descriptionError)}
+          aria-describedby={descriptionError ? descriptionErrorId : undefined}
           className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
         />
-        {fieldError(submitError, 'description') && (
-          <p className="mt-1 text-sm text-red-700">{fieldError(submitError, 'description')}</p>
+        {descriptionError && (
+          <p id={descriptionErrorId} role="alert" className="mt-1 text-sm text-red-700">
+            {descriptionError}
+          </p>
         )}
       </div>
 
@@ -120,21 +178,26 @@ function PromptForm({
           id="prompt-collection"
           value={collectionId}
           onChange={(event) => setCollectionId(event.target.value)}
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+          disabled={isLoadingCollections}
+          aria-invalid={Boolean(collectionError)}
+          aria-describedby={collectionError ? collectionErrorId : undefined}
+          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:opacity-50"
         >
-          <option value="">No collection</option>
+          <option value="">{isLoadingCollections ? 'Loading collections…' : 'No collection'}</option>
           {collections.map((collection) => (
             <option key={collection.id} value={collection.id}>
               {collection.name}
             </option>
           ))}
         </select>
-        {fieldError(submitError, 'collection_id') && (
-          <p className="mt-1 text-sm text-red-700">{fieldError(submitError, 'collection_id')}</p>
+        {collectionError && (
+          <p id={collectionErrorId} role="alert" className="mt-1 text-sm text-red-700">
+            {collectionError}
+          </p>
         )}
       </div>
 
-      <div className="flex justify-end gap-3">
+      <div className="flex flex-wrap justify-end gap-3">
         <button
           type="button"
           onClick={onCancel}
@@ -146,6 +209,7 @@ function PromptForm({
         <button
           type="submit"
           disabled={isSubmitting}
+          aria-busy={isSubmitting}
           className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
         >
           {isSubmitting ? 'Saving…' : submitLabel}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import AppShell from '../../components/AppShell'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -20,6 +20,8 @@ function PromptDetailPage() {
   const { prompt, isLoading, error, reload, save, remove } = usePrompt(id)
 
   const [collections, setCollections] = useState([])
+  const [isLoadingCollections, setIsLoadingCollections] = useState(true)
+  const [collectionsError, setCollectionsError] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -28,9 +30,19 @@ function PromptDetailPage() {
   const [deleteError, setDeleteError] = useState(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  useEffect(() => {
-    listCollections().then((result) => setCollections(result.collections))
+  const loadCollections = useCallback(() => {
+    setIsLoadingCollections(true)
+    setCollectionsError(null)
+    return listCollections()
+      .then((result) => setCollections(result.collections))
+      .catch(() => setCollectionsError('Could not load your collections.'))
+      .finally(() => setIsLoadingCollections(false))
   }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount; no caching library per spec's state-management decision
+    loadCollections()
+  }, [loadCollections])
 
   const collectionName = prompt?.collection_id
     ? collections.find((collection) => collection.id === prompt.collection_id)?.name
@@ -83,9 +95,15 @@ function PromptDetailPage() {
       {!isLoading && !error && prompt && isEditing && (
         <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
           <h1 className="mb-4 text-lg font-semibold text-gray-900">Edit prompt</h1>
+          {collectionsError && (
+            <div className="mb-4">
+              <ErrorBanner error={collectionsError} onRetry={loadCollections} />
+            </div>
+          )}
           <PromptForm
             initialValues={prompt}
             collections={collections}
+            isLoadingCollections={isLoadingCollections}
             submitError={saveError}
             isSubmitting={isSaving}
             submitLabel="Save changes"

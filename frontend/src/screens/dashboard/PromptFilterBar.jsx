@@ -17,12 +17,14 @@ function PromptFilterBar({ collections, collectionId, search, onCollectionChange
         value={search}
         onChange={(event) => onSearchChange(event.target.value)}
         placeholder="Search prompts…"
-        className="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm"
+        aria-label="Search prompts"
+        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm sm:w-64"
       />
       <select
         value={collectionId}
         onChange={(event) => onCollectionChange(event.target.value)}
-        className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+        aria-label="Filter by collection"
+        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm sm:w-auto"
       >
         <option value="">All collections</option>
         {collections.map((collection) => (

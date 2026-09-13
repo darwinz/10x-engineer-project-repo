@@ -7,7 +7,7 @@
  */
 function EmptyState({ message, actionLabel, onAction }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-md border border-dashed border-gray-300 py-12 text-center text-gray-500">
+    <div role="status" className="flex flex-col items-center gap-3 rounded-md border border-dashed border-gray-300 py-12 text-center text-gray-500">
       <span>{message}</span>
       {actionLabel && onAction && (
         <button

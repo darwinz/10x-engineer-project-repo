@@ -14,7 +14,7 @@ function AppShell({ children }) {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <nav className="mx-auto flex max-w-5xl items-center gap-4 px-4 py-3">
+        <nav aria-label="Primary" className="mx-auto flex max-w-5xl flex-wrap items-center gap-4 px-4 py-3">
           <span className="text-lg font-semibold text-gray-900">PromptLab</span>
           <NavLink to="/" end className={linkClass}>
             Prompts

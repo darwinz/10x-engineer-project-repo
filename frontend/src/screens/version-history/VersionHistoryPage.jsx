@@ -40,7 +40,7 @@ function VersionHistoryPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-gray-900">
           Version history{prompt ? `: ${prompt.title}` : ''}
         </h1>
@@ -65,7 +65,7 @@ function VersionHistoryPage() {
               onSelect={setSelectedVersionNumber}
             />
             <div>
-              {restoreError && <ErrorBanner error={restoreError} />}
+              {restoreError && <ErrorBanner error={restoreError} onRetry={handleRestore} />}
               <div className="mt-3">
                 <VersionDetailPanel
                   version={selected}

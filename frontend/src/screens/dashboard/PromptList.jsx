@@ -9,11 +9,14 @@ import EmptyState from '../../components/EmptyState'
  *   prompts: import('../../types').Prompt[],
  *   collectionsById: Record<string, import('../../types').Collection>,
  *   onCreate: () => void,
+ *   hasActiveFilters?: boolean,
  * }} props
  */
-function PromptList({ prompts, collectionsById, onCreate }) {
+function PromptList({ prompts, collectionsById, onCreate, hasActiveFilters }) {
   if (prompts.length === 0) {
-    return (
+    return hasActiveFilters ? (
+      <EmptyState message="No prompts match your search or filter." />
+    ) : (
       <EmptyState
         message="No prompts yet. Create your first prompt to get started."
         actionLabel="New prompt"
