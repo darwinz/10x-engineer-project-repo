@@ -150,23 +150,15 @@ The backend already has permissive CORS (`allow_origins=["*"]` in `backend/app/a
 
 ## Running it without deploying anywhere (Docker)
 
-If you don't want to create Render/Vercel accounts at all, the backend runs the same way locally as it does on Render — from what's committed, no manual setup:
+If you don't want to create Render/Vercel accounts at all, both services run locally the same way they do deployed — from what's committed, no manual setup:
 
 ```bash
 docker compose up --build
 ```
 
-This builds `backend/Dockerfile` and serves the API at `http://localhost:8000`. See the root `README.md`'s Docker section for details (hot reload, etc.).
+This builds both `backend/Dockerfile` and `frontend/Dockerfile`, serving the API at `http://localhost:8000` and the UI at `http://localhost:5173`, wired together (`VITE_API_BASE_URL=http://localhost:8000` is set in `docker-compose.yml`). See the root `README.md`'s Docker section for details (hot reload for both, what's in each image, etc.).
 
-The frontend doesn't yet have a Dockerfile (it's a static build, so `docker compose up` isn't the natural fit for it); run it locally instead:
-
-```bash
-cd frontend
-npm install
-VITE_API_BASE_URL=http://localhost:8000 npm run dev
-```
-
-This satisfies the assignment's "runnable via a documented container command" allowance for the backend, with the frontend's plain local-dev command alongside it.
+This satisfies the assignment's "runnable via a documented container command" allowance directly — no separate local-dev command needed for the frontend anymore.
 
 ## Redeploying / updating
 

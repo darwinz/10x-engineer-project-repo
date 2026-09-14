@@ -162,7 +162,7 @@ The suite (38 tests) uses FastAPI's `TestClient`, so the server does not need to
 
 ## Docker
 
-No local Python setup required — this runs the same service inside a container, from what's committed in the repo.
+No local Python or Node setup required — this runs both the API and the web UI inside containers, from what's committed in the repo.
 
 ### Prerequisites
 
@@ -176,18 +176,23 @@ From the repo root:
 docker compose up --build
 ```
 
-This builds `backend/Dockerfile`, maps container port `8000` to `http://localhost:8000`, and bind-mounts `backend/` into the container so edits on your host take effect immediately — the container runs `python main.py`, which starts uvicorn with `reload=True`, so it restarts itself on file changes with no rebuild needed.
+This builds both `backend/Dockerfile` and `frontend/Dockerfile`, maps container port `8000` to `http://localhost:8000` and `5173` to `http://localhost:5173`, and bind-mounts each service's source into its container so edits on your host take effect immediately:
+
+- **backend** runs `python main.py`, which starts uvicorn with `reload=True`, so it restarts itself on file changes with no rebuild needed.
+- **frontend** runs `vite`'s dev server with hot module replacement — edits show up in the browser without a page reload, let alone a rebuild.
 
 ```bash
 curl http://localhost:8000/health
 # {"status":"healthy","version":"0.1.0"}
 ```
 
-Stop it with `docker compose down` (add `-v` only if you've added volumes you want cleared — there are none by default here, since storage is in-memory).
+Then open `http://localhost:5173` in a browser — the frontend container is preconfigured (`VITE_API_BASE_URL=http://localhost:8000`) to talk to the backend container's host-mapped port.
 
-### Running the built image directly (no reload)
+Stop it with `docker compose down` (add `-v` only if you've added volumes you want cleared — the only volume here is frontend's anonymous `node_modules` one, which is fine to lose; there's no database).
 
-To build and run the image the way it would run in production, without Compose or the dev bind-mount:
+### Running the backend image directly (no reload)
+
+To build and run the backend the way it would run in production, without Compose or the dev bind-mount:
 
 ```bash
 cd backend
@@ -195,18 +200,18 @@ docker build -t promptlab-backend .
 docker run -p 8000:8000 promptlab-backend
 ```
 
-This uses the Dockerfile's own `CMD` (`uvicorn app.api:app --host 0.0.0.0 --port 8000`, no `--reload`) — code is baked into the image at build time, not mounted from the host.
+This uses the Dockerfile's own `CMD` (`uvicorn app.api:app --host 0.0.0.0 --port 8000`, no `--reload`) — code is baked into the image at build time, not mounted from the host. The frontend's Dockerfile doesn't have an equivalent production `CMD` — it's a dev-server image only; the deployed frontend is built by Vercel from `frontend/vercel.json` instead (see `docs/deployment.md`).
 
-### What's in the image
+### What's in the images
 
-- Base: `python:3.12.8-slim`, matching the pinned `pydantic==2.5.3` requirement (no wheels for 3.13+).
-- Dependencies installed from `backend/requirements.txt` in their own layer, so rebuilds are fast unless that file changes.
-- Runs as a non-root user (`appuser`), not the image's default root.
-- `backend/.dockerignore` keeps `.venv/`, `tests/`, caches, and `.git` out of the build context.
+- **Backend** — base `python:3.12.8-slim`, matching the pinned `pydantic==2.5.3` requirement (no wheels for 3.13+). Dependencies installed from `backend/requirements.txt` in their own layer, so rebuilds are fast unless that file changes.
+- **Frontend** — base `node:22-slim`. Dependencies installed from `frontend/package.json`/`package-lock.json` in their own layer; `docker-compose.yml` adds an anonymous volume for `node_modules` so the source bind-mount doesn't shadow them.
+- Both run as a non-root user (`appuser`), not the image's default root.
+- `backend/.dockerignore` keeps `.venv/`, `tests/`, caches, and `.git` out of the backend build context; `frontend/.dockerignore` keeps `node_modules`, `dist`, `.vercel`, and `.env*` out of the frontend's.
 
 ### Known Docker-specific limitation
 
-Storage is in-memory per the running process (see [Known Limitations](#known-limitations) below) — `docker compose up` with hot reload restarts that process on every code change, clearing storage each time, same as running `python main.py` outside Docker. Stopping and removing the container also loses all data; there's no volume for the (nonexistent) database.
+Storage is in-memory per the running backend process (see [Known Limitations](#known-limitations) below) — `docker compose up` with hot reload restarts that process on every backend code change, clearing storage each time, same as running `python main.py` outside Docker. Stopping and removing the containers also loses all data; there's no volume for the (nonexistent) database.
 
 ### Known Limitations
 

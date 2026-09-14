@@ -20,3 +20,27 @@ services:
     # main.py already runs uvicorn with reload=True; reuse it here instead of the
     # Dockerfile's non-reloading production CMD.
     command: python main.py
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      # Read by Vite when the dev server starts. This is fetched by the browser
+      # on the host, not by the container, so it must be the host-reachable
+      # URL — the in-network service name "backend" wouldn't resolve there.
+      - VITE_API_BASE_URL=http://localhost:8000
+    volumes:
+      # Bind-mount the source so edits on the host are picked up without rebuilding
+      # the image.
+      - ./frontend:/app
+      # Anonymous volume so the bind mount above doesn't shadow node_modules,
+      # which was installed into the image during build.
+      - /app/node_modules
+    depends_on:
+      - backend
+    # --host binds to 0.0.0.0; package.json's bare `vite` binds to localhost
+    # only, which isn't reachable from outside the container.
+    command: npm run dev -- --host 0.0.0.0
