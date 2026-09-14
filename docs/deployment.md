@@ -12,7 +12,7 @@ PromptLab is deployed as two independently-hosted services:
 - Frontend: **https://frontend-brandon-johnsons-projects-f70ddf1b.vercel.app**
 - Backend: **https://promptlab-backend-g2g1.onrender.com** (interactive docs at `/docs`)
 
-Both are wired to auto-deploy from the `main` branch of `https://github.com/darwinz/10x-engineer-project-repo` — a push to `main` redeploys both services with no manual step. If you're setting this up from scratch (a new fork, a new Render/Vercel account), follow every step below; nothing here was configured by hand that isn't also written down here.
+Both are wired to auto-deploy from the `main` branch of `https://github.com/darwinz/10x-engineer-project-repo` — a push to `main` redeploys both services with no manual step, though the two use different mechanisms (see [Redeploying / updating](#redeploying--updating)). If you're setting this up from scratch (a new fork, a new Render/Vercel account), follow every step below; nothing here was configured by hand that isn't also written down here.
 
 ## Why the backend isn't on Vercel too
 
@@ -24,14 +24,17 @@ Render's free web service runs the backend as one container, one process, exactl
 
 ## Environment variables and secrets
 
-**There are no secrets in this project.** No auth, no database credentials, no third-party API keys. The only environment variable that exists is plain configuration, safe to see in a browser's network tab:
+**The app itself has no secrets.** No auth, no database credentials, no third-party API keys. There is exactly one real secret in this project, and it exists purely to make CI able to trigger a deploy — see below.
 
-| Variable | Where it's set | Value | Purpose |
+| Variable | Where it's set | Value | Sensitive? |
 |---|---|---|---|
-| `VITE_API_BASE_URL` | Vercel → Project → Settings → Environment Variables (Production) | `https://promptlab-backend-g2g1.onrender.com` | Base URL the frontend's `fetch` calls are built against. Baked in **at build time** by Vite — changing it requires a redeploy, not just a restart. |
-| `PORT` | Render → Service → Environment | `8000` | Tells Render which port to route traffic to. The backend's `Dockerfile` hardcodes `uvicorn ... --port 8000`; this just tells Render to match it instead of Render's own default (10000). Not secret, just wiring. |
+| `VITE_API_BASE_URL` | Vercel → Project → Settings → Environment Variables (Production) | `https://promptlab-backend-g2g1.onrender.com` | No — this is plain config, visible in any browser's network tab. Baked in **at build time** by Vite, so changing it requires a new build, not just a restart. |
+| `PORT` | Render → Service → Environment | `8000` | No. Tells Render which port to route traffic to. The backend's `Dockerfile` hardcodes `uvicorn ... --port 8000`; this just tells Render to match it instead of Render's own default (10000). |
+| `RENDER_DEPLOY_HOOK_URL` | GitHub → repo → Settings → Secrets and variables → Actions | A Render-issued URL (`https://api.render.com/deploy/srv-...?key=...`) | **Yes.** Anyone holding it can trigger a deploy of the backend. Not read-access to data, but still not something to expose. |
 
-If this project later adds something that actually is a secret (an LLM API key, a database URL with credentials, etc.), the pattern to follow is:
+**How `RENDER_DEPLOY_HOOK_URL` was set**, and how any future secret should be: it was never typed into a chat, a file, or a terminal command's arguments where it would land in shell history or these docs. The Render dashboard generated it; it was piped directly into `gh secret set RENDER_DEPLOY_HOOK_URL -R darwinz/10x-engineer-project-repo`, which stores it GitHub-side, encrypted, and exposes it to workflow runs only as `${{ secrets.RENDER_DEPLOY_HOOK_URL }}` — never in logs, never checked into the repo. `git log -p` and `git grep` over the full history confirm it appears nowhere in tracked files.
+
+If this project later adds another real secret (an LLM API key, a database URL with credentials, etc.), follow the same pattern:
 - **Never** commit it to a `.env` file, `vercel.json`, `render.yaml`, or any tracked file.
 - Set it directly in the platform's environment variable UI (Vercel dashboard/CLI `vercel env add`, Render dashboard/CLI `render services update` or the dashboard's Environment tab) — both platforms store these encrypted and scope them per-environment.
 - For local development, use a `.env`/`.env.local` file that's `.gitignore`d (both `frontend/.gitignore` and a future `backend/.gitignore` should list it), and — per this project's convention — prefer resolving local secrets from a password manager (e.g. `op read op://Vault/Item/field` for 1Password) rather than typing them into plaintext files at all.
@@ -85,7 +88,11 @@ render services create \
 
 Because this repo is **public**, Render can clone it directly from the URL — no GitHub App installation/authorization needed for this path (only Option A's Blueprint flow needs that, since it browses your repo list). If you fork this to a private repo, use Option A instead.
 
-The command's JSON output includes `serviceDetails.url` — that's your backend's live URL. `autoDeploy` defaults to `"yes"` on the `commit` trigger, so every push to `main` redeploys automatically; watch it with:
+The command's JSON output includes `serviceDetails.url` — that's your backend's live URL.
+
+**Important:** the service comes back reporting `autoDeploy: "yes"` / `autoDeployTrigger: "commit"`, but that field alone does **not** mean pushes will redeploy it — that requires Render's GitHub App to actually be installed with access to the repo (checkable at `https://github.com/settings/installations`), which this CLI path (creating from a bare repo URL) does not set up. Creating the service via Option A's dashboard Blueprint flow *does* install it, since that flow is how you browse/select the repo in the first place. This project's live deployment was created via this CLI path and got exactly this gap — see [Redeploying / updating](#redeploying--updating) for the fix that was actually used (a GitHub Actions step calling a Render Deploy Hook), which works regardless of which path you used here.
+
+Watch a deploy's status (triggered either way) with:
 
 ```bash
 render deploys list <service-id> --output json
@@ -163,12 +170,34 @@ This satisfies the assignment's "runnable via a documented container command" al
 
 ## Redeploying / updating
 
-Both services auto-deploy on push to `main`:
+Both services redeploy on push to `main`, but via two different mechanisms — worth understanding, because they were set up differently and failed differently before landing on what's below.
 
-- **Render** rebuilds `backend/Dockerfile` and redeploys (`autoDeploy: yes`, trigger `commit`). Watch progress with `render deploys list <service-id>` or the service's dashboard page.
-- **Vercel** rebuilds the frontend from `frontend/` (root directory setting) and redeploys to the same production URL. Watch progress with `vercel ls frontend` or the project's dashboard page.
+### Vercel — native Git integration
 
-No manual redeploy step is needed for ordinary code changes. Environment variable changes (e.g. a new `VITE_API_BASE_URL` if the backend moves) require **triggering a new frontend build** to take effect, since they're baked in at build time — an empty commit or `vercel --prod` from the frontend directory both work.
+The frontend project is Git-connected (`vercel git connect`, see above), which is Vercel's own webhook-based integration. This just works: a push to `main` shows up as a new production deployment within seconds, confirmed by its `githubCommitSha` matching the pushed commit. Watch it with `vercel ls frontend` or the project's dashboard page. No CI step is involved — Vercel handles it entirely on its own.
+
+### Render — GitHub Actions calling a Deploy Hook
+
+Render's own "auto-deploy on push" needs its GitHub App installed on the repo (see the callout in the Render section above). Setting that up requires a human clicking through Render's own GitHub authorization — not something achievable by API/CLI alone — and wasn't available in this project's setup. Rather than leave the backend without auto-deploy, `.github/workflows/ci.yml` has a `deploy-backend` job:
+
+```yaml
+deploy-backend:
+  name: Deploy backend (Render)
+  needs: test
+  if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  runs-on: ubuntu-latest
+  steps:
+    - name: Trigger Render deploy hook
+      run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+```
+
+It runs only after `test` passes, only on pushes to `main` (never on pull requests, where the secret wouldn't be available to a fork anyway), and calls Render's Deploy Hook — a per-service URL from the Render dashboard (Service → Settings → Deploy Hook) that triggers a deploy of the latest commit on the service's configured branch when POSTed to. This is arguably a *better* setup than relying on Render's own auto-deploy: the backend only redeploys if the test suite actually passes first, which Render's own commit-trigger has no concept of.
+
+**If you're setting this up from scratch:** create the service (Option A or B above), then in the Render dashboard grab its Deploy Hook URL, then run `gh secret set RENDER_DEPLOY_HOOK_URL -R <your-fork>` and paste it when prompted — the `deploy-backend` job is already in `.github/workflows/ci.yml` and will pick it up on the next push.
+
+### Environment variable changes
+
+Both `VITE_API_BASE_URL` (Vercel) and any future config need a **new build** to take effect, not just a restart — they're baked in at build/deploy time. For Vercel, an empty commit or `vercel --prod` from `frontend/` triggers one; for Render, a push (via the Deploy Hook above) or `render deploys create <service-id>` does.
 
 ## Known limitations of this deployment
 

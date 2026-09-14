@@ -31,3 +31,12 @@ jobs:
 
       - name: Run tests with coverage (fails if coverage drops below 80%)
         run: pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=80
+
+  deploy-backend:
+    name: Deploy backend (Render)
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hook
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
