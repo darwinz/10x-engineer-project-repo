@@ -195,9 +195,24 @@ It runs only after `test` passes, only on pushes to `main` (never on pull reques
 
 **If you're setting this up from scratch:** create the service (Option A or B above), then in the Render dashboard grab its Deploy Hook URL, then run `gh secret set RENDER_DEPLOY_HOOK_URL -R <your-fork>` and paste it when prompted — the `deploy-backend` job is already in `.github/workflows/ci.yml` and will pick it up on the next push.
 
+**Gotcha:** if your clone has more than one remote (this repo does — `origin` plus an `upstream` pointing at the course template), plain `gh secret set RENDER_DEPLOY_HOOK_URL` fails with `multiple remotes detected. please specify which repo to use`. Pass `-R <owner>/<repo>` explicitly, as above — that's not optional here.
+
 ### Environment variable changes
 
 Both `VITE_API_BASE_URL` (Vercel) and any future config need a **new build** to take effect, not just a restart — they're baked in at build/deploy time. For Vercel, an empty commit or `vercel --prod` from `frontend/` triggers one; for Render, a push (via the Deploy Hook above) or `render deploys create <service-id>` does.
+
+## Verification evidence
+
+Claims above aren't just asserted — both auto-deploy paths were proven across two separate real pushes to `main`, not just the initial setup:
+
+| Commit | Vercel deployment | Render deploy | GitHub Actions run |
+|---|---|---|---|
+| `1d99330` (added deployment.md) | `frontend-3irewtnkw-...vercel.app`, state `READY`, `githubCommitSha` matches exactly | — (this push predates the `deploy-backend` job) | — |
+| `97105fb` (added `deploy-backend` job) | `frontend-o7bys7rnd-...vercel.app`, state `READY`, `githubCommitSha` matches exactly | `dep-dajp36e7bikc73cuqg6g`, `trigger: "deploy_hook"`, `status: "live"`, same commit | [Run 34812844036](https://github.com/darwinz/10x-engineer-project-repo/actions/runs/34812844036) — both `Lint & Test` and `Deploy backend (Render)` jobs green |
+
+The backend was also confirmed responding correctly after that deploy: `curl https://promptlab-backend-g2g1.onrender.com/prompts` → `200 {"prompts":[],"total":0}`.
+
+Separately, a full CRUD round trip was run against the live deployment through an actual browser, not just curl: created a prompt titled "Deployment Smoke Test" on the production Vercel URL, confirmed it appeared (proving the frontend's `fetch` reached the Render backend, CORS included), then deleted it via the same UI to leave the deployment clean.
 
 ## Known limitations of this deployment
 
