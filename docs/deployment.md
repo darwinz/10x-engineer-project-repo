@@ -12,6 +12,8 @@ PromptLab is deployed as two independently-hosted services:
 - Frontend: **https://frontend-brandon-johnsons-projects-f70ddf1b.vercel.app**
 - Backend: **https://promptlab-backend-g2g1.onrender.com** (interactive docs at `/docs`)
 
+**Vercel SSO deployment protection was on by default** (`ssoProtection.deploymentType: "all_except_custom_domains"`, checkable with `vercel project protection frontend`) and redirected two of the three assigned aliases — including the one above — to a Vercel login page instead of the app. Since this app has no auth and nothing sensitive to protect, it was disabled outright rather than worked around: `vercel project protection disable frontend --sso`. All aliases (`frontend-brandon-johnsons-projects-f70ddf1b.vercel.app`, `frontend-git-main-brandon-johnsons-projects-f70ddf1b.vercel.app`, `frontend-kappa-azure-zq5w4wbrnq.vercel.app`) are public now. This is a Vercel default worth re-checking (`curl -o /dev/null -w '%{http_code}' <url>` should return `200`, not a `302` to `vercel.com/sso-api`) on any fresh `vercel link` for a new project, since it's applied automatically and wasn't something explicitly turned on here.
+
 Both are wired to auto-deploy from the `main` branch of `https://github.com/darwinz/10x-engineer-project-repo` — a push to `main` redeploys both services with no manual step, though the two use different mechanisms (see [Redeploying / updating](#redeploying--updating)). If you're setting this up from scratch (a new fork, a new Render/Vercel account), follow every step below; nothing here was configured by hand that isn't also written down here.
 
 ## Environment variables and secrets
@@ -197,6 +199,11 @@ Claims above aren't just asserted — both auto-deploy paths were proven across 
 The backend was also confirmed responding correctly after that deploy: `curl https://promptlab-backend-g2g1.onrender.com/prompts` → `200 {"prompts":[],"total":0}`.
 
 Separately, a full CRUD round trip was run against the live deployment through an actual browser, not just curl: created a prompt titled "Deployment Smoke Test" on the production Vercel URL, confirmed it appeared (proving the frontend's `fetch` reached the Render backend, CORS included), then deleted it via the same UI to leave the deployment clean.
+
+**Re-verified independently in a later session** (both the documented local commands and the live deployment, not just one or the other):
+- `cd backend && python main.py` (via `uv run` on the machine this was checked from) served `/prompts` and `/health` correctly on `http://localhost:8000`.
+- `cd frontend && npm run dev` served the SPA on `http://localhost:5173`, which loaded and completed a real CRUD round trip against the local backend above with no env var set — confirming `client.js`'s `http://localhost:8000` fallback is correct.
+- Checking the *actual deployed* URLs (not just localhost) caught a real regression this pass: Vercel's SSO deployment protection (`ssoProtection.deploymentType: "all_except_custom_domains"`, on by default) had two of the three production aliases silently redirecting to a Vercel login page instead of the app — including the one this document was telling people to use. Fixed as described above (`vercel project protection disable frontend --sso`) and confirmed with a full CRUD round trip against the now-public URL through an actual browser, same as the original check. This is exactly the kind of drift `curl`-ing localhost alone would never catch.
 
 ## Known limitations of this deployment
 
