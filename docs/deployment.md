@@ -5,7 +5,7 @@ PromptLab is deployed as two independently-hosted services:
 | Service | Platform | Why |
 |---|---|---|
 | Frontend (React/Vite SPA) | [Vercel](https://vercel.com) | Purpose-built for static/SPA builds; free, fast, trivial to wire to a Git repo. |
-| Backend (FastAPI) | [Render](https://render.com) (free web service) | See below — Vercel's serverless model is a poor fit for this backend as written. |
+| Backend (FastAPI) | [Render](https://render.com) (free web service) | Runs as one persistent container/process, matching how `docker compose up` runs it locally. |
 
 **Live URLs (current deployment):**
 
@@ -13,14 +13,6 @@ PromptLab is deployed as two independently-hosted services:
 - Backend: **https://promptlab-backend-g2g1.onrender.com** (interactive docs at `/docs`)
 
 Both are wired to auto-deploy from the `main` branch of `https://github.com/darwinz/10x-engineer-project-repo` — a push to `main` redeploys both services with no manual step, though the two use different mechanisms (see [Redeploying / updating](#redeploying--updating)). If you're setting this up from scratch (a new fork, a new Render/Vercel account), follow every step below; nothing here was configured by hand that isn't also written down here.
-
-## Why the backend isn't on Vercel too
-
-PromptLab's storage is **deliberately in-memory** (see `specs/frontend.md`'s Overview — "resets on every backend restart" is treated as a normal, expected state, not a bug). That design assumes a single persistent process.
-
-Vercel Functions don't provide that: a Python ASGI app deployed there runs as serverless functions, and Vercel gives no guarantee that concurrent or sequential requests hit the same warm instance. In practice this would mean a prompt you just created could be missing on the very next request, served by a different cold instance with empty memory. That's not "resets on restart," it's "randomly inconsistent under normal use," and it would make the app look broken in a live demo.
-
-Render's free web service runs the backend as one container, one process, exactly like `docker compose up` does locally — the in-memory model behaves the way it was built to behave. If you later replace in-memory storage with a real database, moving the backend to Vercel Functions (or anywhere else) becomes a reasonable option again.
 
 ## Environment variables and secrets
 
